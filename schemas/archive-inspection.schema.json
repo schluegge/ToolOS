@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://toolos.dev/schemas/archive-inspection.schema.json",
+  "title": "ToolOS ZIP inspection report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "requested_path",
+    "canonical_path",
+    "archive_file_size",
+    "archive_entries",
+    "reported_entries",
+    "total_compressed_size",
+    "total_uncompressed_size",
+    "decision",
+    "findings",
+    "entries",
+    "privacy_mode",
+    "observed_at",
+    "limitations"
+  ],
+  "properties": {
+    "requested_path": { "type": "string" },
+    "canonical_path": { "type": "string" },
+    "archive_file_size": { "type": "integer", "minimum": 0 },
+    "archive_entries": { "type": "integer", "minimum": 0 },
+    "reported_entries": { "type": "integer", "minimum": 0, "maximum": 500 },
+    "total_compressed_size": { "type": "integer", "minimum": 0 },
+    "total_uncompressed_size": { "type": "integer", "minimum": 0 },
+    "decision": {
+      "type": "string",
+      "enum": ["ACCEPT_STRUCTURE", "REVIEW", "BLOCK"]
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "entries": {
+      "type": "array",
+      "maxItems": 500,
+      "items": { "$ref": "#/$defs/entry" }
+    },
+    "privacy_mode": { "const": "SELECTED_ARCHIVE_METADATA" },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "code", "entry_index", "entry_name", "message"],
+      "properties": {
+        "severity": { "type": "string", "enum": ["REVIEW", "BLOCKER"] },
+        "code": { "type": "string", "minLength": 1 },
+        "entry_index": { "type": ["integer", "null"], "minimum": 0 },
+        "entry_name": { "type": ["string", "null"] },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "name",
+        "enclosed_path",
+        "entry_kind",
+        "compression",
+        "compressed_size",
+        "uncompressed_size",
+        "expansion_ratio",
+        "encrypted",
+        "unix_mode",
+        "crc32"
+      ],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "name": { "type": "string" },
+        "enclosed_path": { "type": ["string", "null"] },
+        "entry_kind": { "type": "string", "enum": ["FILE", "DIRECTORY", "SYMLINK"] },
+        "compression": { "type": "string" },
+        "compressed_size": { "type": "integer", "minimum": 0 },
+        "uncompressed_size": { "type": "integer", "minimum": 0 },
+        "expansion_ratio": { "type": ["integer", "null"], "minimum": 0 },
+        "encrypted": { "type": "boolean" },
+        "unix_mode": { "type": ["integer", "null"], "minimum": 0 },
+        "crc32": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+      }
+    }
+  }
+}
