@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -15,15 +16,19 @@ use toolos_storage::{
     ActionExecutionFinish, ActionExecutionStart, ActionPlanApproval, Storage, StoredActionPlan,
     StoredApprovalReceipt, StoredResourceLock,
 };
+use toolos_windows_job::{CancellationReason, CancellationToken};
 use toolos_winget::{
     build_approval_receipt, build_execution_report, build_install_plan, validate_execution_request,
-    InstallPlanStatus, PackageScope, ProcessEvidence, WingetExecutionStatus,
-    WingetInstallApprovalReceipt, WingetInstallExecutionRequest, WingetInstallPlan,
-    WingetInstalledStateReport, WingetResolutionReport,
+    CommandPreview, InstallPlanStatus, PackageScope, ProcessContainmentEvidence, ProcessEvidence,
+    ProcessTerminationReason, WingetExecutionStatus, WingetInstallApprovalReceipt,
+    WingetInstallExecutionRequest, WingetInstallPlan, WingetInstalledStateReport,
+    WingetResolutionReport,
 };
 use tracing::{error, info, instrument};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
+
+mod contained_adapter;
 
 #[derive(Clone)]
 struct AppState {
@@ -31,6 +36,7 @@ struct AppState {
     started_at: DateTime<Utc>,
     system_adapter_path: PathBuf,
     winget_adapter_path: PathBuf,
+    active_install_executions: Arc<tokio::sync::Mutex<HashMap<Uuid, CancellationToken>>>,
 }
 
 #[tokio::main]
@@ -55,6 +61,7 @@ async fn main() -> anyhow::Result<()> {
         started_at,
         system_adapter_path,
         winget_adapter_path,
+        active_install_executions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     });
 
     let startup_trace = Uuid::new_v4();
@@ -132,6 +139,7 @@ async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> any
         "winget.install.plan.get" => winget_install_plan_get(state, &request.params),
         "winget.install.approve" => winget_install_approve(state, trace_id, &request.params),
         "winget.install.execute" => winget_install_execute(state, trace_id, &request.params).await,
+        "winget.install.cancel" => winget_install_cancel(state, trace_id, &request.params).await,
         "winget.install.lock" => winget_install_lock(state),
         "evidence.list" => {
             let limit = bounded_limit(&request.params, 50);
@@ -560,40 +568,54 @@ async fn winget_install_execute(
         }),
     )?;
 
-    let process_evidence = match invoke_adapter(
+    let cancellation = CancellationToken::default();
+    {
+        let mut active = state.active_install_executions.lock().await;
+        if active.insert(plan_id, cancellation.clone()).is_some() {
+            return Err(anyhow!("an execution is already active for plan {plan_id}"));
+        }
+    }
+    let contained_result = contained_adapter::invoke(
         &state.winget_adapter_path,
         "winget.install.execute",
         serde_json::to_value(&request)?,
         Duration::from_secs(31 * 60),
+        cancellation,
     )
-    .await
-    {
-        Ok(payload) => serde_json::from_value::<ProcessEvidence>(payload)?,
-        Err(error) => ProcessEvidence {
-            executable: command.executable.clone(),
-            args: command.args.clone(),
-            exit_code: None,
-            stdout: String::new(),
-            stderr: format!("ToolOS adapter invocation failed: {error}"),
-            timed_out: false,
-            duration_ms: 0,
-        },
-    };
+    .await;
+    state
+        .active_install_executions
+        .lock()
+        .await
+        .remove(&plan_id);
+    let (process_evidence, containment) = contained_process_evidence(&command, contained_result)?;
 
-    let post_install_state = match winget_installed(state, trace_id, &selector_json).await {
-        Ok(value) => value
-            .get("snapshot")
-            .cloned()
-            .map(serde_json::from_value::<WingetInstalledStateReport>)
-            .transpose()?,
-        Err(error) => {
-            state.storage.append_event(
-                trace_id,
-                "winget.install.post_state.failed",
-                &json!({"execution_id": execution_id, "error": error.to_string()}),
-            )?;
-            None
+    let post_install_state = if containment.process_tree_terminated() {
+        match winget_installed(state, trace_id, &selector_json).await {
+            Ok(value) => value
+                .get("snapshot")
+                .cloned()
+                .map(serde_json::from_value::<WingetInstalledStateReport>)
+                .transpose()?,
+            Err(error) => {
+                state.storage.append_event(
+                    trace_id,
+                    "winget.install.post_state.failed",
+                    &json!({"execution_id": execution_id, "error": error.to_string()}),
+                )?;
+                None
+            }
         }
+    } else {
+        state.storage.append_event(
+            trace_id,
+            "winget.install.post_state.skipped",
+            &json!({
+                "execution_id": execution_id,
+                "reason": "process-tree termination was not confirmed"
+            }),
+        )?;
+        None
     };
     let completed_at = Utc::now();
     let report = build_execution_report(
@@ -606,6 +628,7 @@ async fn winget_install_execute(
         started_at,
         completed_at,
         process_evidence,
+        containment,
         preflight_resolution,
         preflight_installed_state,
         post_install_state,
@@ -616,6 +639,10 @@ async fn winget_install_execute(
         }
         WingetExecutionStatus::ProviderFailed | WingetExecutionStatus::TimedOut => {
             InstallPlanStatus::ExecutionFailed
+        }
+        WingetExecutionStatus::Cancelled => InstallPlanStatus::ExecutionCancelled,
+        WingetExecutionStatus::UnknownRequiresRecovery => {
+            InstallPlanStatus::UnknownRequiresRecovery
         }
     };
     plan.single_safest_next_action = report.single_safest_next_action.clone();
@@ -641,6 +668,7 @@ async fn winget_install_execute(
             final_status,
             updated_plan_json: &final_plan_json,
             resource_key: &plan.lock_key,
+            release_lock: report.status != WingetExecutionStatus::UnknownRequiresRecovery,
         })?;
     state.storage.append_event(
         trace_id,
@@ -655,6 +683,104 @@ async fn winget_install_execute(
         }),
     )?;
     Ok(json!({"plan": plan, "report": report, "evidence": evidence}))
+}
+
+fn contained_process_evidence(
+    command: &CommandPreview,
+    outcome: anyhow::Result<contained_adapter::ContainedAdapterOutcome>,
+) -> anyhow::Result<(ProcessEvidence, ProcessContainmentEvidence)> {
+    let outcome = match outcome {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            let containment = ProcessContainmentEvidence::unavailable(error.to_string());
+            return Ok((
+                ProcessEvidence {
+                    executable: command.executable.clone(),
+                    args: command.args.clone(),
+                    exit_code: None,
+                    stdout: String::new(),
+                    stderr: format!("contained adapter setup failed: {error}"),
+                    timed_out: false,
+                    duration_ms: 0,
+                },
+                containment,
+            ));
+        }
+    };
+
+    let timed_out = outcome.containment.termination_reason == ProcessTerminationReason::TimedOut;
+    if let Some(response) = outcome.response {
+        if let Some(error) = response.error {
+            return Ok((
+                ProcessEvidence {
+                    executable: command.executable.clone(),
+                    args: command.args.clone(),
+                    exit_code: None,
+                    stdout: outcome.transport_stdout,
+                    stderr: format!(
+                        "adapter error {}: {}; {}",
+                        error.code, error.message, outcome.transport_stderr
+                    ),
+                    timed_out,
+                    duration_ms: outcome.duration_ms,
+                },
+                outcome.containment,
+            ));
+        }
+        if let Some(payload) = response.result {
+            if let Ok(evidence) = serde_json::from_value::<ProcessEvidence>(payload) {
+                return Ok((evidence, outcome.containment));
+            }
+        }
+    }
+
+    Ok((
+        ProcessEvidence {
+            executable: command.executable.clone(),
+            args: command.args.clone(),
+            exit_code: None,
+            stdout: outcome.transport_stdout,
+            stderr: format!(
+                "contained adapter produced no valid execution response; root_exit_code={:?}; {}",
+                outcome.root_exit_code, outcome.transport_stderr
+            ),
+            timed_out,
+            duration_ms: outcome.duration_ms,
+        },
+        outcome.containment,
+    ))
+}
+
+async fn winget_install_cancel(
+    state: &AppState,
+    trace_id: Uuid,
+    params: &Value,
+) -> anyhow::Result<Value> {
+    let plan_id = required_uuid(params, "plan_id", "winget.install.cancel")?;
+    let token = state
+        .active_install_executions
+        .lock()
+        .await
+        .get(&plan_id)
+        .cloned();
+    let active = token.is_some();
+    let cancel_requested = token
+        .as_ref()
+        .is_some_and(|token| token.cancel(CancellationReason::ExplicitCancellation));
+    state.storage.append_event(
+        trace_id,
+        "winget.install.execution.cancel_requested",
+        &json!({
+            "plan_id": plan_id,
+            "active": active,
+            "cancel_requested": cancel_requested
+        }),
+    )?;
+    Ok(json!({
+        "plan_id": plan_id,
+        "active": active,
+        "cancel_requested": cancel_requested
+    }))
 }
 
 fn validate_execution_authorization(
@@ -830,6 +956,12 @@ fn capabilities() -> Value {
             "status": "IMPLEMENTED_USER_SCOPE_PINNED"
         },
         {
+            "capability_id": "package.install.cancel.winget",
+            "provider_id": "toolos.daemon.governance",
+            "blast_radius": "SAFETY_CONTROL",
+            "status": "IMPLEMENTED"
+        },
+        {
             "capability_id": "package.preview.install",
             "provider_id": "toolos.adapter.winget",
             "blast_radius": "USER_PROFILE_WRITE_OR_MACHINE_WRITE",
@@ -905,6 +1037,8 @@ fn install_plan_status(status: &InstallPlanStatus) -> &'static str {
         InstallPlanStatus::Executing => "EXECUTING",
         InstallPlanStatus::ExecutionSucceededUnverified => "EXECUTION_SUCCEEDED_UNVERIFIED",
         InstallPlanStatus::ExecutionFailed => "EXECUTION_FAILED",
+        InstallPlanStatus::ExecutionCancelled => "EXECUTION_CANCELLED",
+        InstallPlanStatus::UnknownRequiresRecovery => "UNKNOWN_REQUIRES_RECOVERY",
         InstallPlanStatus::Expired => "EXPIRED",
     }
 }
@@ -916,6 +1050,8 @@ fn execution_status(status: &WingetExecutionStatus) -> &'static str {
         }
         WingetExecutionStatus::ProviderFailed => "PROVIDER_FAILED",
         WingetExecutionStatus::TimedOut => "TIMED_OUT",
+        WingetExecutionStatus::Cancelled => "CANCELLED",
+        WingetExecutionStatus::UnknownRequiresRecovery => "UNKNOWN_REQUIRES_RECOVERY",
     }
 }
 

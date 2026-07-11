@@ -1011,6 +1011,7 @@ dependencies = [
  "toolos-domain",
  "toolos-ipc",
  "toolos-storage",
+ "toolos-windows-job",
  "toolos-winget",
  "tracing",
  "tracing-subscriber",

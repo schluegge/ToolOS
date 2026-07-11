@@ -94,6 +94,11 @@ enum Command {
         #[arg(long)]
         confirmation: String,
     },
+    /// Request cancellation of one active governed WinGet execution.
+    WingetInstallCancel {
+        #[arg(long)]
+        plan_id: String,
+    },
     /// Show the current ToolOS WinGet package-manager lock.
     WingetInstallLock,
     /// Get one persisted install plan by UUID.
@@ -194,6 +199,10 @@ async fn main() -> anyhow::Result<()> {
                 "approval_id": approval_id,
                 "confirmation": confirmation
             }),
+        ),
+        Command::WingetInstallCancel { plan_id } => (
+            "winget.install.cancel".to_owned(),
+            json!({"plan_id": plan_id}),
         ),
         Command::WingetInstallLock => ("winget.install.lock".to_owned(), json!({})),
         Command::WingetInstallPlanGet { plan_id } => (

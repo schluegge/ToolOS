@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use serde_json::Value;
 use toolos_domain::{RpcRequest, RpcResponse};
 use toolos_windows_job::{
@@ -32,7 +32,8 @@ pub async fn invoke(
     let method = method.to_owned();
     tokio::task::spawn_blocking(move || {
         let request = RpcRequest::new(method, params);
-        let mut stdin = serde_json::to_vec(&request).context("serialize contained adapter request")?;
+        let mut stdin =
+            serde_json::to_vec(&request).context("serialize contained adapter request")?;
         stdin.push(b'\n');
 
         let mut spec = ProcessSpec::new(path, Vec::<OsString>::new());
@@ -51,11 +52,7 @@ pub async fn invoke(
         let response = transport_stdout
             .lines()
             .find(|line| !line.trim().is_empty())
-            .map(|line| {
-                serde_json::from_str::<RpcResponse>(line.trim())
-                    .map_err(|error| anyhow!("contained adapter returned invalid JSON-RPC: {error}"))
-            })
-            .transpose()?;
+            .and_then(|line| serde_json::from_str::<RpcResponse>(line.trim()).ok());
 
         Ok(ContainedAdapterOutcome {
             response,
@@ -89,9 +86,7 @@ fn map_containment(report: ContainmentReport) -> ProcessContainmentEvidence {
             TerminationReason::DescendantsOutlivedRoot => {
                 ProcessTerminationReason::DescendantsOutlivedRoot
             }
-            TerminationReason::ContainmentFailure => {
-                ProcessTerminationReason::ContainmentFailure
-            }
+            TerminationReason::ContainmentFailure => ProcessTerminationReason::ContainmentFailure,
         },
         termination_requested: report.termination_requested,
         termination_confirmed: report.termination_confirmed,

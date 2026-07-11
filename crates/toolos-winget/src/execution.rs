@@ -5,7 +5,8 @@ use uuid::Uuid;
 
 use crate::{
     install_preview, normalize_selector, CommandPreview, PackageScope, PackageSelector,
-    ProcessEvidence, WingetInstalledStateReport, WingetResolutionReport,
+    ProcessContainmentEvidence, ProcessEvidence, ProcessTerminationReason,
+    WingetInstalledStateReport, WingetResolutionReport,
 };
 
 const PLAN_HASH_LENGTH: usize = 64;
@@ -38,6 +39,8 @@ pub enum WingetExecutionStatus {
     ProviderSucceededPostStateUnverified,
     ProviderFailed,
     TimedOut,
+    Cancelled,
+    UnknownRequiresRecovery,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -52,6 +55,7 @@ pub struct WingetInstallExecutionReport {
     pub started_at: DateTime<Utc>,
     pub completed_at: DateTime<Utc>,
     pub process_evidence: ProcessEvidence,
+    pub containment: ProcessContainmentEvidence,
     pub preflight_resolution: WingetResolutionReport,
     pub preflight_installed_state: WingetInstalledStateReport,
     pub post_install_state: Option<WingetInstalledStateReport>,
@@ -158,16 +162,26 @@ pub fn build_execution_report(
     started_at: DateTime<Utc>,
     completed_at: DateTime<Utc>,
     process_evidence: ProcessEvidence,
+    containment: ProcessContainmentEvidence,
     preflight_resolution: WingetResolutionReport,
     preflight_installed_state: WingetInstalledStateReport,
     post_install_state: Option<WingetInstalledStateReport>,
 ) -> WingetInstallExecutionReport {
-    let status = if process_evidence.timed_out {
-        WingetExecutionStatus::TimedOut
-    } else if process_evidence.exit_code == Some(0) {
-        WingetExecutionStatus::ProviderSucceededPostStateUnverified
-    } else {
-        WingetExecutionStatus::ProviderFailed
+    let status = match &containment.termination_reason {
+        ProcessTerminationReason::ProcessExited if containment.process_tree_terminated() => {
+            if process_evidence.exit_code == Some(0) {
+                WingetExecutionStatus::ProviderSucceededPostStateUnverified
+            } else {
+                WingetExecutionStatus::ProviderFailed
+            }
+        }
+        ProcessTerminationReason::TimedOut if containment.process_tree_terminated() => {
+            WingetExecutionStatus::TimedOut
+        }
+        ProcessTerminationReason::ExplicitCancellation if containment.process_tree_terminated() => {
+            WingetExecutionStatus::Cancelled
+        }
+        _ => WingetExecutionStatus::UnknownRequiresRecovery,
     };
     let (verification_claim, single_safest_next_action) = match status {
         WingetExecutionStatus::ProviderSucceededPostStateUnverified => (
@@ -183,9 +197,20 @@ pub fn build_execution_report(
                 .to_owned(),
         ),
         WingetExecutionStatus::TimedOut => (
-            "The WinGet invocation exceeded the bounded execution window; final installer state is unknown."
+            "The bounded execution window expired and ToolOS confirmed that the contained process tree terminated; partial installer state may remain."
                 .to_owned(),
-            "Inspect WinGet logs and running installer processes before creating another plan."
+            "Review the captured output and residual machine state before creating another plan."
+                .to_owned(),
+        ),
+        WingetExecutionStatus::Cancelled => (
+            "The user requested cancellation and ToolOS confirmed that the contained process tree terminated; partial installer state may remain."
+                .to_owned(),
+            "Review residual machine state before retrying or planning cleanup.".to_owned(),
+        ),
+        WingetExecutionStatus::UnknownRequiresRecovery => (
+            "ToolOS could not prove complete process-tree termination; installation state is unknown."
+                .to_owned(),
+            "Do not start another mutable package action. Run the recovery inspection workflow."
                 .to_owned(),
         ),
     };
@@ -201,6 +226,7 @@ pub fn build_execution_report(
         started_at,
         completed_at,
         process_evidence,
+        containment,
         preflight_resolution,
         preflight_installed_state,
         post_install_state,
@@ -215,7 +241,7 @@ pub fn build_execution_report(
                 .to_owned(),
             "WinGet output and exit status are evidence, not a universal application healthcheck."
                 .to_owned(),
-            "On timeout, ToolOS cannot prove that every installer child process terminated; inspect the machine before retrying."
+            "The execution report records the containment method, root PID, termination reason, confirmation result, and remaining active-process count."
                 .to_owned(),
         ],
         single_safest_next_action,

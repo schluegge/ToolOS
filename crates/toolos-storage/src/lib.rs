@@ -170,6 +170,7 @@ pub struct ActionExecutionFinish<'a> {
     pub final_status: &'a str,
     pub updated_plan_json: &'a str,
     pub resource_key: &'a str,
+    pub release_lock: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -636,10 +637,12 @@ impl Storage {
                 "execution completion requires EXECUTING state".to_owned(),
             ));
         }
-        transaction.execute(
-            "DELETE FROM resource_lock WHERE resource_key = ?1 AND holder_plan_id = ?2",
-            params![execution.resource_key, execution.plan_id.to_string()],
-        )?;
+        if execution.release_lock {
+            transaction.execute(
+                "DELETE FROM resource_lock WHERE resource_key = ?1 AND holder_plan_id = ?2",
+                params![execution.resource_key, execution.plan_id.to_string()],
+            )?;
+        }
         transaction.commit()?;
         Ok(())
     }
