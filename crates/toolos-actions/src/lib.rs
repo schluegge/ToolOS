@@ -132,7 +132,9 @@ pub fn approve_plan(
     }
     if now >= plan.expires_at {
         plan.status = ActionStatus::Expired;
-        return Err("action plan expired; create a fresh plan and resolve the package again".to_owned());
+        return Err(
+            "action plan expired; create a fresh plan and resolve the package again".to_owned(),
+        );
     }
     if request.confirmation_phrase != plan.confirmation_phrase {
         return Err("confirmation phrase does not match the action plan".to_owned());
@@ -227,7 +229,8 @@ fn create_plan(
             "Process-tree cancellation is not implemented and proven on Windows.".to_owned(),
             "Pre-install residual-state inventory is not implemented.".to_owned(),
             "Automatic rollback coverage has not been tested for the selected package.".to_owned(),
-            "Installer elevation and agreement handling remain explicit human boundaries.".to_owned(),
+            "Installer elevation and agreement handling remain explicit human boundaries."
+                .to_owned(),
         ],
         rollback,
     })
@@ -343,10 +346,7 @@ mod tests {
             acknowledgements: acknowledgements(),
         };
         let approved = approve_plan(plan, &valid, now).expect("approval");
-        assert_eq!(
-            approved.status,
-            ActionStatus::ApprovedAwaitingExecutor
-        );
+        assert_eq!(approved.status, ActionStatus::ApprovedAwaitingExecutor);
         assert!(!approved.execution_available);
     }
 

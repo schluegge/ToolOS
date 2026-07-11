@@ -72,7 +72,9 @@ pub enum StorageError {
     Uuid(#[from] uuid::Error),
     #[error("invalid timestamp in database: {0}")]
     Timestamp(#[from] chrono::ParseError),
-    #[error("action plan state conflict: expected {expected}, actual state changed or plan missing")]
+    #[error(
+        "action plan state conflict: expected {expected}, actual state changed or plan missing"
+    )]
     ActionPlanConflict { expected: String },
 }
 

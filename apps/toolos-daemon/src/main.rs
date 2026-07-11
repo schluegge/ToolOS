@@ -144,7 +144,9 @@ async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> any
         }
         "actions.list" => {
             let limit = bounded_limit(&request.params, 50);
-            Ok(serde_json::to_value(state.storage.list_action_plans(limit)?)?)
+            Ok(serde_json::to_value(
+                state.storage.list_action_plans(limit)?,
+            )?)
         }
         "actions.get" => {
             let id = required_uuid(&request.params, "plan_id", "actions.get")?;
@@ -264,11 +266,7 @@ async fn inspect_archive(
     Ok(json!({"snapshot": payload, "evidence": evidence}))
 }
 
-async fn resolve_winget(
-    state: &AppState,
-    trace_id: Uuid,
-    params: Value,
-) -> anyhow::Result<Value> {
+async fn resolve_winget(state: &AppState, trace_id: Uuid, params: Value) -> anyhow::Result<Value> {
     let payload = invoke_adapter(
         &state.winget_adapter_path,
         "winget.resolve",
@@ -277,12 +275,7 @@ async fn resolve_winget(
     )
     .await?;
     let evidence = winget_resolution_evidence(trace_id, &payload)?;
-    record_evidence(
-        state,
-        trace_id,
-        &evidence,
-        "WINGET_PACKAGE_RESOLUTION",
-    )?;
+    record_evidence(state, trace_id, &evidence, "WINGET_PACKAGE_RESOLUTION")?;
     Ok(json!({"snapshot": payload, "evidence": evidence}))
 }
 
@@ -415,10 +408,7 @@ fn reject_action(state: &AppState, trace_id: Uuid, params: Value) -> anyhow::Res
     Ok(serde_json::to_value(rejected)?)
 }
 
-fn winget_resolution_evidence(
-    trace_id: Uuid,
-    payload: &Value,
-) -> anyhow::Result<EvidenceRecord> {
+fn winget_resolution_evidence(trace_id: Uuid, payload: &Value) -> anyhow::Result<EvidenceRecord> {
     let package_id = payload
         .pointer("/selector/package_id")
         .and_then(Value::as_str)
