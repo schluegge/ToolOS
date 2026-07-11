@@ -36,7 +36,7 @@ fn explicit_cancellation_terminates_nested_child() {
 #[test]
 fn timeout_terminates_nested_child() {
     let case = TestCase::new("timeout");
-    let child = spawn_fixture(&case, Duration::from_secs(2));
+    let child = spawn_fixture(&case, Duration::from_millis(500));
     let output = child
         .wait(&CancellationToken::default())
         .expect("wait for timeout containment");
