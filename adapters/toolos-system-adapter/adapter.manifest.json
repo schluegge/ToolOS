@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "adapter_id": "toolos.adapter.system",
+  "adapter_version": "0.1.0",
+  "entrypoint": {
+    "environment": "WINDOWS_NATIVE",
+    "command": "toolos-system-adapter.exe",
+    "args": []
+  },
+  "protocol": "toolos-jsonrpc-1",
+  "permissions": {
+    "filesystem": ["PATH_METADATA", "SELECTED_PROJECT_TOP_LEVEL"],
+    "network": [],
+    "credentials": [],
+    "process_spawn": []
+  },
+  "capabilities": ["machine.inspect", "project.inspect"],
+  "healthcheck": {
+    "method": "adapter.health",
+    "timeout_seconds": 5
+  },
+  "provenance": {
+    "canonical_source": "https://github.com/schluegge/ToolOS",
+    "maintainer": "ToolOS project",
+    "license": "UNLICENSED",
+    "verified_utc": "2026-07-11T00:00:00Z"
+  }
+}

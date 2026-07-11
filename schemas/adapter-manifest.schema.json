@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://toolos.local/schemas/adapter-manifest.schema.json",
+  "title": "ToolOS adapter manifest",
+  "type": "object",
+  "required": ["schema_version", "adapter_id", "adapter_version", "entrypoint", "protocol", "permissions", "capabilities", "healthcheck", "provenance"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "adapter_id": { "type": "string", "minLength": 1 },
+    "adapter_version": { "type": "string", "minLength": 1 },
+    "entrypoint": {
+      "type": "object",
+      "required": ["environment", "command", "args"],
+      "properties": {
+        "environment": { "type": "string" },
+        "command": { "type": "string", "minLength": 1 },
+        "args": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "protocol": { "const": "toolos-jsonrpc-1" },
+    "permissions": {
+      "type": "object",
+      "required": ["filesystem", "network", "credentials", "process_spawn"],
+      "properties": {
+        "filesystem": { "type": "array", "items": { "type": "string" } },
+        "network": { "type": "array", "items": { "type": "string" } },
+        "credentials": { "type": "array", "items": { "type": "string" } },
+        "process_spawn": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "capabilities": { "type": "array", "items": { "type": "string" } },
+    "healthcheck": { "type": "object" },
+    "provenance": { "type": "object" }
+  },
+  "additionalProperties": false
+}

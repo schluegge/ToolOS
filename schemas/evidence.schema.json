@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://toolos.local/schemas/evidence.schema.json",
+  "title": "ToolOS evidence record",
+  "type": "object",
+  "required": ["id", "trace_id", "kind", "scope", "claim", "provider", "observed_at", "payload", "limitations", "content_sha256"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "trace_id": { "type": "string", "format": "uuid" },
+    "kind": { "type": "string" },
+    "scope": { "type": "string" },
+    "claim": { "type": "string", "minLength": 1 },
+    "provider": { "type": "string", "minLength": 1 },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "payload": {},
+    "limitations": { "type": "array", "items": { "type": "string" } },
+    "content_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}
