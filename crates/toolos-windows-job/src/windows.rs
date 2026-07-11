@@ -346,15 +346,14 @@ enum PipeDirection {
 
 impl PipePair {
     fn new(direction: PipeDirection) -> Result<Self> {
-        let mut attributes = SECURITY_ATTRIBUTES {
+        let attributes = SECURITY_ATTRIBUTES {
             nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
             lpSecurityDescriptor: null_mut(),
             bInheritHandle: 1,
         };
         let mut read_handle = null_mut();
         let mut write_handle = null_mut();
-        let created =
-            unsafe { CreatePipe(&mut read_handle, &mut write_handle, &mut attributes, 0) };
+        let created = unsafe { CreatePipe(&mut read_handle, &mut write_handle, &attributes, 0) };
         if created == 0 {
             return Err(last_error("CreatePipe"));
         }
