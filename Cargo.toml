@@ -8,6 +8,7 @@ members = [
   "crates/toolos-storage",
   "crates/toolos-ipc",
   "crates/toolos-system",
+  "crates/toolos-archive",
   "adapters/toolos-system-adapter",
 ]
 exclude = ["apps/toolos-ui/src-tauri"]
