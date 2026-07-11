@@ -11,11 +11,13 @@ rusqlite.workspace = true
 rusqlite_migration.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+toolos-actions = { path = "../toolos-actions" }
 toolos-domain = { path = "../toolos-domain" }
 uuid.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
+toolos-winget = { path = "../toolos-winget" }
 
 [lints]
 workspace = true
