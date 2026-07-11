@@ -14,6 +14,7 @@ toolos-domain = { path = "../../crates/toolos-domain" }
 toolos-ipc = { path = "../../crates/toolos-ipc" }
 toolos-storage = { path = "../../crates/toolos-storage" }
 toolos-winget = { path = "../../crates/toolos-winget" }
+toolos-windows-job = { path = "../../crates/toolos-windows-job" }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
