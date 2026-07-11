@@ -2,76 +2,13 @@ name: verify
 
 on:
   push:
-    branches: [main, "build/**", "feature/**"]
+    branches: [main, "build/**"]
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-clippy-fixes:
-    name: Apply verified Clippy fixes
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feature/')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref_name }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - name: Apply exact verified fixes
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("crates/toolos-archive/src/lib.rs")
-          text = path.read_text(encoding="utf-8")
-
-          pattern = "trim_end_matches(|character| character == ' ' || character == '.')"
-          if text.count(pattern) != 2:
-              raise SystemExit(f"expected exactly two trim patterns, found {text.count(pattern)}")
-          text = text.replace(pattern, "trim_end_matches([' ', '.'])")
-
-          old = '''fn expansion_ratio(uncompressed_size: u64, compressed_size: u64) -> Option<u64> {
-              if uncompressed_size == 0 {
-                  None
-              } else if compressed_size == 0 {
-                  Some(u64::MAX)
-              } else {
-                  Some(uncompressed_size.saturating_add(compressed_size - 1) / compressed_size)
-              }
-          }'''
-          new = '''fn expansion_ratio(uncompressed_size: u64, compressed_size: u64) -> Option<u64> {
-              if uncompressed_size == 0 {
-                  None
-              } else {
-                  Some(
-                      uncompressed_size
-                          .saturating_add(compressed_size.saturating_sub(1))
-                          .checked_div(compressed_size)
-                          .unwrap_or(u64::MAX),
-                  )
-              }
-          }'''
-          if old not in text:
-              raise SystemExit("verified expansion_ratio source block was not found")
-          path.write_text(text.replace(old, new), encoding="utf-8")
-          PY
-          cargo fmt --all
-      - name: Commit verified fixes
-        shell: bash
-        run: |
-          if git diff --quiet; then
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add crates/toolos-archive/src/lib.rs
-          git commit -m "fix: apply verified Clippy suggestions"
-          git push origin HEAD:${{ github.ref_name }}
-
   rust:
     name: Rust workspace
     runs-on: ubuntu-latest
