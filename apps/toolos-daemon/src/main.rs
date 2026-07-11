@@ -298,14 +298,7 @@ async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> any
 }
 
 async fn adapter_health(path: &Path) -> &'static str {
-    match invoke_adapter(
-        path,
-        "adapter.health",
-        json!({}),
-        Duration::from_secs(7),
-    )
-    .await
-    {
+    match invoke_adapter(path, "adapter.health", json!({}), Duration::from_secs(7)).await {
         Ok(payload) => match payload.get("status").and_then(Value::as_str) {
             Some("HEALTHY") => "HEALTHY",
             Some("DEGRADED") => "DEGRADED",
@@ -460,8 +453,7 @@ mod tests {
     fn path_parameter_must_be_non_empty() {
         assert!(required_path(&json!({"path": "  "}), "archive.inspect").is_err());
         assert_eq!(
-            required_path(&json!({"path": "fixture.zip"}), "archive.inspect")
-                .expect("path"),
+            required_path(&json!({"path": "fixture.zip"}), "archive.inspect").expect("path"),
             "fixture.zip"
         );
     }
