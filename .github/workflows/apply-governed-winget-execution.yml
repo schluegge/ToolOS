@@ -1,0 +1,51 @@
+name: apply-governed-winget-execution
+
+on:
+  push:
+    branches: [build/winget-user-execution]
+    paths:
+      - tools/apply-governed-winget-execution.py.gz.b64
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: build/winget-user-execution
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Decode and apply patch
+        run: |
+          base64 --decode tools/apply-governed-winget-execution.py.gz.b64 | gzip --decompress > /tmp/apply-governed-winget-execution.py
+          python /tmp/apply-governed-winget-execution.py
+      - name: Format Rust
+        run: cargo fmt --all
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Rust tests
+        run: cargo test --workspace
+      - name: Frontend checks
+        run: |
+          corepack enable
+          pnpm install --no-frozen-lockfile
+          pnpm --dir apps/toolos-ui check
+          pnpm --dir apps/toolos-ui build
+      - name: Commit verified feature
+        run: |
+          git config user.name "ToolOS Build Bot"
+          git config user.email "toolos-build-bot@users.noreply.github.com"
+          git rm .github/workflows/apply-governed-winget-execution.yml
+          git rm tools/apply-governed-winget-execution.py.gz.b64
+          git add -A
+          git commit -m "Execute governed pinned user-scope WinGet plans"
+          git push origin HEAD:build/winget-user-execution
