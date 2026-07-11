@@ -15,8 +15,6 @@ pub struct ContainedAdapterOutcome {
     pub root_exit_code: Option<u32>,
     pub transport_stdout: String,
     pub transport_stderr: String,
-    pub stdout_truncated: bool,
-    pub stderr_truncated: bool,
     pub duration_ms: u64,
     pub containment: ProcessContainmentEvidence,
 }
@@ -59,8 +57,6 @@ pub async fn invoke(
             root_exit_code: output.exit_code,
             transport_stdout,
             transport_stderr,
-            stdout_truncated: output.stdout_truncated,
-            stderr_truncated: output.stderr_truncated,
             duration_ms: output.duration_ms,
             containment: map_containment(output.containment),
         })
