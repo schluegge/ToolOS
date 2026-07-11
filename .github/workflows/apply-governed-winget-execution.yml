@@ -34,8 +34,9 @@ jobs:
             cat tools/patch-parts/*.b64 | base64 --decode > /tmp/patch.py.gz
             sha256sum -c tools/patch-ready.sha256
             gzip --test /tmp/patch.py.gz
-            gzip --decompress --stdout /tmp/patch.py.gz > /tmp/apply-governed-winget-execution.py
-            python /tmp/apply-governed-winget-execution.py
+            gzip --decompress --stdout /tmp/patch.py.gz > tools/.apply-governed-winget-execution.py
+            python tools/.apply-governed-winget-execution.py
+            rm tools/.apply-governed-winget-execution.py
             cargo fmt --all
             cargo clippy --workspace --all-targets -- -D warnings
             cargo test --workspace
