@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use serde_json::{json, Value};
 use toolos_domain::{RpcRequest, RpcResponse};
 
@@ -16,9 +16,24 @@ struct Cli {
     command: Command,
 }
 
+#[derive(Debug, Clone, ValueEnum)]
+enum WingetScope {
+    User,
+    Machine,
+}
+
+impl WingetScope {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Machine => "machine",
+        }
+    }
+}
+
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Check daemon, database, and system-adapter reachability.
+    /// Check daemon, database, and adapter reachability.
     Doctor,
     /// Inspect host metadata and PATH-visible tool candidates without launching them.
     Scan,
@@ -26,6 +41,19 @@ enum Command {
     Inspect { path: String },
     /// Inspect ZIP structure and extraction-path risks without extracting the archive.
     Archive { path: String },
+    /// Resolve one exact WinGet package and show disabled install/uninstall previews.
+    WingetResolve {
+        #[arg(long)]
+        id: String,
+        #[arg(long, default_value = "winget")]
+        source: String,
+        #[arg(long)]
+        version: Option<String>,
+        #[arg(long, value_enum)]
+        scope: Option<WingetScope>,
+        #[arg(long)]
+        architecture: Option<String>,
+    },
     /// List persisted evidence records.
     Evidence {
         #[arg(long, default_value_t = 50)]
@@ -54,6 +82,22 @@ async fn main() -> anyhow::Result<()> {
         Command::Scan => ("machine.inspect".to_owned(), json!({})),
         Command::Inspect { path } => ("project.inspect".to_owned(), json!({"path": path})),
         Command::Archive { path } => ("archive.inspect".to_owned(), json!({"path": path})),
+        Command::WingetResolve {
+            id,
+            source,
+            version,
+            scope,
+            architecture,
+        } => (
+            "winget.resolve".to_owned(),
+            json!({
+                "package_id": id,
+                "source": source,
+                "version": version,
+                "scope": scope.map(|value| value.as_str()),
+                "architecture": architecture
+            }),
+        ),
         Command::Evidence { limit } => ("evidence.list".to_owned(), json!({"limit": limit})),
         Command::Events { limit } => ("events.replay".to_owned(), json!({"limit": limit})),
         Command::Capabilities => ("capabilities.list".to_owned(), json!({})),
@@ -104,6 +148,41 @@ mod tests {
         let cli = Cli::try_parse_from(["toolos", "archive", "input.zip"]).expect("parse CLI");
         match cli.command {
             Command::Archive { path } => assert_eq!(path, "input.zip"),
+            _ => panic!("wrong command"),
+        }
+    }
+
+    #[test]
+    fn clap_parses_exact_winget_selector() {
+        let cli = Cli::try_parse_from([
+            "toolos",
+            "winget-resolve",
+            "--id",
+            "Git.Git",
+            "--source",
+            "winget",
+            "--version",
+            "2.50.1",
+            "--scope",
+            "user",
+            "--architecture",
+            "x64",
+        ])
+        .expect("parse CLI");
+        match cli.command {
+            Command::WingetResolve {
+                id,
+                source,
+                version,
+                scope,
+                architecture,
+            } => {
+                assert_eq!(id, "Git.Git");
+                assert_eq!(source, "winget");
+                assert_eq!(version.as_deref(), Some("2.50.1"));
+                assert!(matches!(scope, Some(WingetScope::User)));
+                assert_eq!(architecture.as_deref(), Some("x64"));
+            }
             _ => panic!("wrong command"),
         }
     }
