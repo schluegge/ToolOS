@@ -130,6 +130,11 @@
   border-color: rgba(89, 190, 139, 0.55);
 }
 
+.execution-result.unknown,
+.cancel-execution {
+  border-color: rgba(232, 101, 101, 0.7);
+}
+
 .execution-result pre {
   max-height: 280px;
   overflow: auto;

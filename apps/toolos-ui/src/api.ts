@@ -113,6 +113,29 @@ export type ProcessEvidence = {
   duration_ms: number;
 };
 
+export type ProcessTerminationReason =
+  | "PROCESS_EXITED"
+  | "TIMED_OUT"
+  | "EXPLICIT_CANCELLATION"
+  | "DAEMON_SHUTDOWN"
+  | "DESCENDANTS_OUTLIVED_ROOT"
+  | "CONTAINMENT_FAILURE"
+  | "UNAVAILABLE";
+
+export type ProcessContainmentEvidence = {
+  method: string;
+  root_process_id: number | null;
+  kill_on_job_close: boolean;
+  assigned_at_creation: boolean;
+  inherited_handle_list_restricted: boolean;
+  termination_reason: ProcessTerminationReason;
+  termination_requested: boolean;
+  termination_confirmed: boolean;
+  active_processes_after: number | null;
+  descendants_outlived_root: boolean;
+  detail: string | null;
+};
+
 export type WingetResolutionReport = {
   provider_id: string;
   provider_version: string | null;
@@ -152,9 +175,12 @@ export type WingetInstallPlan = {
     | "AWAITING_APPROVAL"
     | "BLOCKED"
     | "APPROVED_EXECUTION_DISABLED"
+    | "APPROVED_AWAITING_EXECUTION"
     | "EXECUTING"
     | "EXECUTION_SUCCEEDED_UNVERIFIED"
     | "EXECUTION_FAILED"
+    | "EXECUTION_CANCELLED"
+    | "UNKNOWN_REQUIRES_RECOVERY"
     | "EXPIRED";
   selector: WingetPackageSelector;
   resolution: WingetResolutionReport;
@@ -183,8 +209,8 @@ export type WingetInstallApprovalReceipt = {
   expires_at: string;
   lock_key: string;
   lock_expires_at: string;
-  status: "APPROVED_EXECUTION_DISABLED";
-  execution_enabled: false;
+  status: "APPROVED_AWAITING_EXECUTION";
+  execution_enabled: true;
   execution_confirmation: string;
   limitations: string[];
 };
@@ -192,7 +218,9 @@ export type WingetInstallApprovalReceipt = {
 export type WingetExecutionStatus =
   | "PROVIDER_SUCCEEDED_POST_STATE_UNVERIFIED"
   | "PROVIDER_FAILED"
-  | "TIMED_OUT";
+  | "TIMED_OUT"
+  | "CANCELLED"
+  | "UNKNOWN_REQUIRES_RECOVERY";
 
 export type WingetInstallExecutionReport = {
   execution_id: string;
@@ -205,6 +233,7 @@ export type WingetInstallExecutionReport = {
   started_at: string;
   completed_at: string;
   process_evidence: ProcessEvidence;
+  containment: ProcessContainmentEvidence;
   preflight_resolution: WingetResolutionReport;
   preflight_installed_state: WingetInstalledStateReport;
   post_install_state: WingetInstalledStateReport | null;
@@ -299,6 +328,12 @@ export const api = {
       approval_id: approvalId,
       confirmation,
     }),
+  cancelWingetInstallPlan: (planId: string) =>
+    daemonRequest<{
+      plan_id: string;
+      active: boolean;
+      cancel_requested: boolean;
+    }>("winget.install.cancel", { plan_id: planId }),
   getWingetInstallPlan: (planId: string) =>
     daemonRequest<WingetInstallPlan>("winget.install.plan.get", {
       plan_id: planId,

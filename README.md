@@ -58,6 +58,8 @@ cargo run -p toolos-cli -- winget-install-plan --id Git.Git --source winget --sc
 cargo run -p toolos-cli -- winget-install-approve --plan-id <UUID> --plan-hash <SHA256> --confirmation "<EXACT PHRASE>"
 # Execution is restricted to explicit user scope plus pinned version and architecture:
 cargo run -p toolos-cli -- winget-install-execute --plan-id <UUID> --approval-id <UUID> --confirmation "<EXACT EXECUTION PHRASE>"
+# While an execution is active, request cancellation of the entire contained process tree:
+cargo run -p toolos-cli -- winget-install-cancel --plan-id <UUID>
 cargo run -p toolos-cli -- evidence
 ```
 
@@ -78,7 +80,8 @@ See:
 - [`docs/architecture/ADR-0001-platform.md`](docs/architecture/ADR-0001-platform.md)
 - [`docs/architecture/ADR-0002-safe-zip-inspection.md`](docs/architecture/ADR-0002-safe-zip-inspection.md)
 - [`docs/provider-decisions/ADR-0003-winget-exact-preview.md`](docs/provider-decisions/ADR-0003-winget-exact-preview.md)
+- [`docs/provider-decisions/ADR-0005-windows-job-containment.md`](docs/provider-decisions/ADR-0005-windows-job-containment.md)
 
 ## Safety boundary
 
-The current release permits read-only observations, governed metadata, and one narrow executable slice: an exact version-pinned, architecture-pinned, user-scope WinGet install after fresh revalidation and two separate short-lived confirmations. ToolOS never auto-accepts agreements, requests elevation, adds installer overrides, bypasses hashes, forces execution, skips dependencies, or claims application health from an exit code. Extraction, deletion, billing, credential extraction, browser stealth, CAPTCHA bypass, machine-scope installation, and arbitrary repository execution remain unimplemented.
+The current draft permits read-only observations, governed metadata, and one narrow executable slice: an exact version-pinned, architecture-pinned, user-scope WinGet install after fresh revalidation and two separate short-lived confirmations. On Windows, the adapter and all descendants are assigned atomically to a kill-on-close Job Object; timeout and cancellation are terminal only when ToolOS confirms zero active job processes. Unconfirmed containment becomes `UNKNOWN_REQUIRES_RECOVERY` and retains the package-manager lock. ToolOS never auto-accepts agreements, requests elevation, adds installer overrides, bypasses hashes, forces execution, skips dependencies, or claims application health from an exit code. Extraction, deletion, billing, credential extraction, browser stealth, CAPTCHA bypass, machine-scope installation, and arbitrary repository execution remain unimplemented.

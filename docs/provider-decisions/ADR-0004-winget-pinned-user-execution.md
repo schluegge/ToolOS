@@ -42,7 +42,7 @@ health verification remain separate work (Issue #10).
 This ADR must remain `Proposed` and PR #7 must remain draft until all of the following evidence
 exists:
 
-- Issue #8 proves Windows process-tree containment and descendant termination on timeout;
+- ADR-0005 and the Windows integration tests prove process-tree containment and descendant termination on timeout/cancellation;
 - Issue #9 proves crash-safe restart reconciliation and residual-state reporting;
 - Issue #10 defines a locale-stable installed-state verdict and package-health boundary;
 - the final branch passes Rust formatting, Clippy with warnings denied, workspace tests,

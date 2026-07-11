@@ -151,6 +151,31 @@ pub fn validate_execution_request(
     Ok(derived)
 }
 
+fn classify_execution_status(
+    process_evidence: &ProcessEvidence,
+    containment: &ProcessContainmentEvidence,
+) -> WingetExecutionStatus {
+    match &containment.termination_reason {
+        ProcessTerminationReason::ProcessExited if containment.process_tree_terminated() => {
+            if process_evidence.exit_code == Some(0) {
+                WingetExecutionStatus::ProviderSucceededPostStateUnverified
+            } else {
+                WingetExecutionStatus::ProviderFailed
+            }
+        }
+        ProcessTerminationReason::TimedOut if containment.process_tree_terminated() => {
+            WingetExecutionStatus::TimedOut
+        }
+        ProcessTerminationReason::ExplicitCancellation
+        | ProcessTerminationReason::DaemonShutdown
+            if containment.process_tree_terminated() =>
+        {
+            WingetExecutionStatus::Cancelled
+        }
+        _ => WingetExecutionStatus::UnknownRequiresRecovery,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn build_execution_report(
     execution_id: Uuid,
@@ -167,22 +192,7 @@ pub fn build_execution_report(
     preflight_installed_state: WingetInstalledStateReport,
     post_install_state: Option<WingetInstalledStateReport>,
 ) -> WingetInstallExecutionReport {
-    let status = match &containment.termination_reason {
-        ProcessTerminationReason::ProcessExited if containment.process_tree_terminated() => {
-            if process_evidence.exit_code == Some(0) {
-                WingetExecutionStatus::ProviderSucceededPostStateUnverified
-            } else {
-                WingetExecutionStatus::ProviderFailed
-            }
-        }
-        ProcessTerminationReason::TimedOut if containment.process_tree_terminated() => {
-            WingetExecutionStatus::TimedOut
-        }
-        ProcessTerminationReason::ExplicitCancellation if containment.process_tree_terminated() => {
-            WingetExecutionStatus::Cancelled
-        }
-        _ => WingetExecutionStatus::UnknownRequiresRecovery,
-    };
+    let status = classify_execution_status(&process_evidence, &containment);
     let (verification_claim, single_safest_next_action) = match status {
         WingetExecutionStatus::ProviderSucceededPostStateUnverified => (
             "WinGet returned exit code zero; ToolOS did not parse a definitive installed-package verdict."
@@ -307,6 +317,102 @@ mod tests {
         assert_eq!(
             execution_confirmation("Git.Git", &"a".repeat(64)).expect("confirmation"),
             "EXECUTE INSTALL Git.Git aaaaaaaaaaaa"
+        );
+    }
+
+    fn process_evidence(exit_code: Option<i32>) -> ProcessEvidence {
+        ProcessEvidence {
+            executable: "winget".to_owned(),
+            args: vec!["install".to_owned()],
+            exit_code,
+            stdout: String::new(),
+            stderr: String::new(),
+            timed_out: false,
+            duration_ms: 1,
+        }
+    }
+
+    fn containment(
+        reason: ProcessTerminationReason,
+        confirmed: bool,
+        active_processes_after: Option<u32>,
+    ) -> ProcessContainmentEvidence {
+        ProcessContainmentEvidence {
+            method: "WINDOWS_JOB_OBJECT_PROC_THREAD_ATTRIBUTE_JOB_LIST".to_owned(),
+            root_process_id: Some(42),
+            kill_on_job_close: true,
+            assigned_at_creation: true,
+            inherited_handle_list_restricted: true,
+            termination_reason: reason,
+            termination_requested: true,
+            termination_confirmed: confirmed,
+            active_processes_after,
+            descendants_outlived_root: false,
+            detail: None,
+        }
+    }
+
+    #[test]
+    fn confirmed_root_exit_classifies_provider_result() {
+        let evidence = containment(ProcessTerminationReason::ProcessExited, true, Some(0));
+        assert_eq!(
+            classify_execution_status(&process_evidence(Some(0)), &evidence),
+            WingetExecutionStatus::ProviderSucceededPostStateUnverified
+        );
+        assert_eq!(
+            classify_execution_status(&process_evidence(Some(1)), &evidence),
+            WingetExecutionStatus::ProviderFailed
+        );
+    }
+
+    #[test]
+    fn confirmed_timeout_and_cancellation_are_distinct_terminal_states() {
+        assert_eq!(
+            classify_execution_status(
+                &process_evidence(None),
+                &containment(ProcessTerminationReason::TimedOut, true, Some(0)),
+            ),
+            WingetExecutionStatus::TimedOut
+        );
+        assert_eq!(
+            classify_execution_status(
+                &process_evidence(None),
+                &containment(
+                    ProcessTerminationReason::ExplicitCancellation,
+                    true,
+                    Some(0),
+                ),
+            ),
+            WingetExecutionStatus::Cancelled
+        );
+        assert_eq!(
+            classify_execution_status(
+                &process_evidence(None),
+                &containment(ProcessTerminationReason::DaemonShutdown, true, Some(0)),
+            ),
+            WingetExecutionStatus::Cancelled
+        );
+    }
+
+    #[test]
+    fn unconfirmed_or_escaped_tree_requires_recovery() {
+        assert_eq!(
+            classify_execution_status(
+                &process_evidence(Some(0)),
+                &containment(ProcessTerminationReason::ProcessExited, false, Some(1)),
+            ),
+            WingetExecutionStatus::UnknownRequiresRecovery
+        );
+        assert_eq!(
+            classify_execution_status(
+                &process_evidence(Some(0)),
+                &containment(
+                    ProcessTerminationReason::DescendantsOutlivedRoot,
+                    true,
+                    Some(0),
+                ),
+            ),
+            WingetExecutionStatus::UnknownRequiresRecovery
         );
     }
 }

@@ -24,6 +24,7 @@ export function InstallPlanPanel({ selector, disabled = false, onEvidence }: Pro
   const [confirmation, setConfirmation] = useState("");
   const [executionConfirmation, setExecutionConfirmation] = useState("");
   const [execution, setExecution] = useState<WingetInstallExecutionReport | null>(null);
+  const [cancelRequested, setCancelRequested] = useState(false);
   const [state, setState] = useState<State>("idle");
   const [message, setMessage] = useState(
     "Create a short-lived dry-run plan that binds identity, installed-state evidence, command, approval, and lock.",
@@ -36,6 +37,7 @@ export function InstallPlanPanel({ selector, disabled = false, onEvidence }: Pro
     setConfirmation("");
     setExecutionConfirmation("");
     setExecution(null);
+    setCancelRequested(false);
     setMessage("Resolving identity and installed state, then hashing an immutable plan…");
     try {
       const result = await api.createWingetInstallPlan(selector);
@@ -74,7 +76,8 @@ export function InstallPlanPanel({ selector, disabled = false, onEvidence }: Pro
   const execute = async () => {
     if (!plan || !receipt) return;
     setState("loading");
-    setMessage("Revalidating the pinned plan, consuming the one-time receipt, and invoking WinGet…");
+    setCancelRequested(false);
+    setMessage("Revalidating the pinned plan, consuming the one-time receipt, and invoking WinGet inside a Windows Job Object…");
     try {
       const result = await api.executeWingetInstallPlan(
         plan.plan_id,
@@ -83,12 +86,39 @@ export function InstallPlanPanel({ selector, disabled = false, onEvidence }: Pro
       );
       setPlan(result.plan);
       setExecution(result.report);
-      setLock(null);
+      setCancelRequested(false);
+      if (result.report.status !== "UNKNOWN_REQUIRES_RECOVERY") {
+        setLock(null);
+      }
       await onEvidence();
       setState("ready");
       setMessage(result.report.single_safest_next_action);
     } catch (error) {
+      setCancelRequested(false);
       setState("error");
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const cancelExecution = async () => {
+    if (!plan) return;
+    setCancelRequested(true);
+    try {
+      const result = await api.cancelWingetInstallPlan(plan.plan_id);
+      if (result.cancel_requested) {
+        setMessage(
+          "Cancellation requested. ToolOS is terminating the complete Windows Job Object process tree and will report whether termination was confirmed.",
+        );
+      } else {
+        setCancelRequested(false);
+        setMessage(
+          result.active
+            ? "A cancellation request already exists for this execution."
+            : "No active governed execution was found for this plan.",
+        );
+      }
+    } catch (error) {
+      setCancelRequested(false);
       setMessage(error instanceof Error ? error.message : String(error));
     }
   };
@@ -232,16 +262,39 @@ export function InstallPlanPanel({ selector, disabled = false, onEvidence }: Pro
                 >
                   Execute approved install
                 </button>
+                {state === "loading" ? (
+                  <button
+                    className="secondary cancel-execution"
+                    type="button"
+                    onClick={() => void cancelExecution()}
+                    disabled={cancelRequested}
+                  >
+                    {cancelRequested ? "Cancellation requested" : "Cancel process tree"}
+                  </button>
+                ) : null}
               </div>
             </div>
           ) : null}
 
           {execution ? (
-            <div className="execution-result">
+            <div
+              className={`execution-result ${
+                execution.status === "UNKNOWN_REQUIRES_RECOVERY" ? "unknown" : ""
+              }`}
+            >
               <strong>{execution.status}</strong>
               <span>{execution.verification_claim}</span>
               <span>Exit code: {execution.process_evidence.exit_code ?? "Unavailable"}</span>
               <span>Duration: {execution.process_evidence.duration_ms} ms</span>
+              <span>Containment: {execution.containment.method}</span>
+              <span>Root PID: {execution.containment.root_process_id ?? "Unavailable"}</span>
+              <span>Termination reason: {execution.containment.termination_reason}</span>
+              <span>
+                Process tree terminated: {execution.containment.termination_confirmed ? "Yes" : "No"}
+              </span>
+              <span>
+                Active job processes after: {execution.containment.active_processes_after ?? "Unknown"}
+              </span>
               <pre>
                 {execution.process_evidence.stdout ||
                   execution.process_evidence.stderr ||
