@@ -52,6 +52,10 @@ cargo run -p toolos-cli -- scan
 cargo run -p toolos-cli -- inspect .
 cargo run -p toolos-cli -- archive C:\path\archive.zip
 cargo run -p toolos-cli -- winget-resolve --id Git.Git --source winget --scope user --architecture x64
+cargo run -p toolos-cli -- winget-installed --id Git.Git --source winget --scope user
+cargo run -p toolos-cli -- winget-install-plan --id Git.Git --source winget --scope user --architecture x64
+# Then approve only the exact plan/hash/phrase returned by the previous command:
+cargo run -p toolos-cli -- winget-install-approve --plan-id <UUID> --plan-hash <SHA256> --confirmation "<EXACT PHRASE>"
 cargo run -p toolos-cli -- evidence
 ```
 
@@ -75,4 +79,4 @@ See:
 
 ## Safety boundary
 
-The current release remains read-only. No installation, extraction, deletion, billing, credential extraction, browser stealth, CAPTCHA bypass, or arbitrary repository execution is implemented.
+The current release permits read-only observations plus local plan, approval-receipt, and lock metadata. No installation, extraction, deletion, agreement acceptance, elevation, billing, credential extraction, browser stealth, CAPTCHA bypass, or arbitrary repository execution is implemented.

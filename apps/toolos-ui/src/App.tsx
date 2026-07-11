@@ -139,8 +139,8 @@ function App() {
         </nav>
         <div className="safety-note">
           <span>Current safety boundary</span>
-          <strong>Read-only</strong>
-          <p>No installs, extraction, deletes, credentials, billing, or repository scripts.</p>
+          <strong>Planning and local approval only</strong>
+          <p>No installs, extraction, deletes, agreement acceptance, elevation, credentials, billing, or repository scripts.</p>
         </div>
       </aside>
 

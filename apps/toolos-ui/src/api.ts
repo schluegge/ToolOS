@@ -127,6 +127,74 @@ export type WingetResolutionReport = {
   single_safest_next_action: string;
 };
 
+export type WingetInstalledStateReport = {
+  provider_id: string;
+  provider_version: string | null;
+  status: "QUERY_COMPLETED" | "BLOCKED" | "UNAVAILABLE";
+  selector: WingetPackageSelector;
+  installed_probe: CommandPreview;
+  installed_evidence: ProcessEvidence | null;
+  observed_at: string;
+  definitive_installed_match: boolean | null;
+  limitations: string[];
+  single_safest_next_action: string;
+};
+
+export type ApprovalChallenge = {
+  required_phrase: string;
+  expires_at: string;
+};
+
+export type WingetInstallPlan = {
+  plan_id: string;
+  plan_hash: string;
+  status: "AWAITING_APPROVAL" | "BLOCKED" | "APPROVED_EXECUTION_DISABLED" | "EXPIRED";
+  selector: WingetPackageSelector;
+  resolution: WingetResolutionReport;
+  installed_state: WingetInstalledStateReport;
+  install_preview: CommandPreview;
+  approval_allowed: boolean;
+  approval_challenge: ApprovalChallenge | null;
+  lock_key: string;
+  created_at: string;
+  expires_at: string;
+  execution_enabled: boolean;
+  blockers: string[];
+  pre_execution_requirements: string[];
+  verification: string[];
+  rollback: string[];
+  limitations: string[];
+  single_safest_next_action: string;
+};
+
+export type WingetInstallApprovalReceipt = {
+  approval_id: string;
+  plan_id: string;
+  plan_hash: string;
+  package_id: string;
+  approved_at: string;
+  expires_at: string;
+  lock_key: string;
+  lock_expires_at: string;
+  status: "APPROVED_EXECUTION_DISABLED";
+  execution_enabled: false;
+  limitations: string[];
+};
+
+export type ResourceLock = {
+  resource_key: string;
+  holder_plan_id: string;
+  acquired_at: string;
+  expires_at: string;
+};
+
+export type WingetApprovalResult = {
+  plan: WingetInstallPlan;
+  receipt: WingetInstallApprovalReceipt;
+  lock: ResourceLock;
+  evidence: EvidenceRecord;
+};
+
 export type EvidenceRecord = {
   id: string;
   trace_id: string;
@@ -167,6 +235,31 @@ export const api = {
       "winget.resolve",
       selector,
     ),
+  createWingetInstallPlan: (selector: WingetPackageSelector) =>
+    daemonRequest<{ plan: WingetInstallPlan; evidence: EvidenceRecord }>(
+      "winget.install.plan",
+      selector,
+    ),
+  approveWingetInstallPlan: (
+    planId: string,
+    planHash: string,
+    confirmation: string,
+  ) =>
+    daemonRequest<WingetApprovalResult>("winget.install.approve", {
+      plan_id: planId,
+      plan_hash: planHash,
+      confirmation,
+    }),
+  getWingetInstallPlan: (planId: string) =>
+    daemonRequest<WingetInstallPlan>("winget.install.plan.get", {
+      plan_id: planId,
+    }),
+  wingetInstallLock: () =>
+    daemonRequest<{
+      resource_key: string;
+      active: boolean;
+      lock: ResourceLock | null;
+    }>("winget.install.lock"),
   listEvidence: (limit = 20) =>
     daemonRequest<EvidenceRecord[]>("evidence.list", { limit }),
 };

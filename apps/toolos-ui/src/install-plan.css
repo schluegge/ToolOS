@@ -1,0 +1,128 @@
+.install-plan {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+
+.install-plan-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.install-plan-heading h3 {
+  margin: 4px 0 8px;
+  font-size: 1.1rem;
+}
+
+.install-plan-heading p {
+  margin: 0;
+  max-width: 720px;
+  color: var(--muted);
+}
+
+.install-plan-message {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.install-plan-message.error {
+  border-color: rgba(232, 101, 101, 0.55);
+}
+
+.install-plan-body {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.plan-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.plan-facts > div,
+.plan-command,
+.plan-list,
+.approval-box,
+.approval-receipt {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.plan-facts span,
+.approval-box span,
+.approval-receipt span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.plan-facts code,
+.plan-command code,
+.approval-box code,
+.approval-receipt code {
+  display: block;
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+}
+
+.plan-command span {
+  display: inline-block;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.plan-list ul {
+  margin: 10px 0 0;
+  padding-left: 20px;
+}
+
+.plan-list li + li {
+  margin-top: 7px;
+}
+
+.plan-list.blocked {
+  border-color: rgba(232, 101, 101, 0.55);
+}
+
+.plan-list.muted {
+  color: var(--muted);
+}
+
+.approval-box {
+  border-color: rgba(223, 178, 74, 0.55);
+}
+
+.approval-controls {
+  display: grid;
+  grid-template-columns: auto minmax(240px, 1fr) auto;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.approval-controls input {
+  min-width: 0;
+}
+
+.approval-receipt {
+  border-color: rgba(89, 190, 139, 0.55);
+}
+
+@media (max-width: 840px) {
+  .install-plan-heading {
+    flex-direction: column;
+  }
+
+  .approval-controls {
+    grid-template-columns: 1fr;
+  }
+}

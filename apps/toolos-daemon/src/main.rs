@@ -11,7 +11,11 @@ use tokio::process::Command;
 use toolos_domain::{
     EvidenceKind, EvidenceRecord, HealthReport, ProjectInspectParams, RpcRequest, RpcResponse,
 };
-use toolos_storage::Storage;
+use toolos_storage::{Storage, StoredActionPlan, StoredApprovalReceipt, StoredResourceLock};
+use toolos_winget::{
+    build_approval_receipt, build_install_plan, InstallPlanStatus, WingetInstallPlan,
+    WingetInstalledStateReport, WingetResolutionReport,
+};
 use tracing::{error, info, instrument};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
@@ -119,6 +123,10 @@ async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> any
         "archive.inspect" => archive_inspect(state, trace_id, &request.params).await,
         "winget.resolve" => winget_resolve(state, trace_id, &request.params).await,
         "winget.installed" => winget_installed(state, trace_id, &request.params).await,
+        "winget.install.plan" => winget_install_plan(state, trace_id, &request.params).await,
+        "winget.install.plan.get" => winget_install_plan_get(state, &request.params),
+        "winget.install.approve" => winget_install_approve(state, trace_id, &request.params),
+        "winget.install.lock" => winget_install_lock(state),
         "evidence.list" => {
             let limit = bounded_limit(&request.params, 50);
             Ok(serde_json::to_value(state.storage.list_evidence(limit)?)?)
@@ -293,6 +301,171 @@ async fn winget_installed(
     Ok(json!({"snapshot": payload, "evidence": evidence}))
 }
 
+async fn winget_install_plan(
+    state: &AppState,
+    trace_id: Uuid,
+    params: &Value,
+) -> anyhow::Result<Value> {
+    let resolution_result = winget_resolve(state, trace_id, params).await?;
+    let installed_result = winget_installed(state, trace_id, params).await?;
+    let resolution: WingetResolutionReport = serde_json::from_value(
+        resolution_result
+            .get("snapshot")
+            .cloned()
+            .context("winget resolution result had no snapshot")?,
+    )?;
+    let installed_state: WingetInstalledStateReport = serde_json::from_value(
+        installed_result
+            .get("snapshot")
+            .cloned()
+            .context("winget installed-state result had no snapshot")?,
+    )?;
+    let plan = build_install_plan(resolution, installed_state, Utc::now(), 600)
+        .map_err(anyhow::Error::msg)?;
+    let approval_phrase = plan
+        .approval_challenge
+        .as_ref()
+        .map(|challenge| challenge.required_phrase.clone())
+        .unwrap_or_default();
+    let stored = StoredActionPlan {
+        id: plan.plan_id,
+        capability: "package.install.plan.winget".to_owned(),
+        resource_key: plan.lock_key.clone(),
+        status: install_plan_status(&plan.status).to_owned(),
+        plan_hash: plan.plan_hash.clone(),
+        created_at: plan.created_at,
+        expires_at: plan.expires_at,
+        approval_phrase,
+        record_json: serde_json::to_string(&plan)?,
+    };
+    state.storage.store_action_plan(&stored)?;
+    let evidence = EvidenceRecord::new(
+        trace_id,
+        EvidenceKind::AdapterInvocation,
+        format!("winget-plan:{}", plan.plan_id),
+        format!(
+            "Governed WinGet install plan created with status {}",
+            install_plan_status(&plan.status)
+        ),
+        "toolos.daemon.governance",
+        serde_json::to_value(&plan)?,
+        plan.limitations.clone(),
+    )?;
+    record_evidence(state, trace_id, &evidence, "WINGET_INSTALL_PLAN")?;
+    state.storage.append_event(
+        trace_id,
+        "winget.install.plan.created",
+        &json!({
+            "plan_id": plan.plan_id,
+            "plan_hash": plan.plan_hash,
+            "status": install_plan_status(&plan.status),
+            "expires_at": plan.expires_at
+        }),
+    )?;
+    Ok(json!({"plan": plan, "evidence": evidence}))
+}
+
+fn winget_install_plan_get(state: &AppState, params: &Value) -> anyhow::Result<Value> {
+    let plan_id = required_uuid(params, "plan_id", "winget.install.plan.get")?;
+    let stored = state
+        .storage
+        .get_action_plan(plan_id)?
+        .with_context(|| format!("install plan not found: {plan_id}"))?;
+    Ok(serde_json::from_str(&stored.record_json)?)
+}
+
+fn winget_install_approve(
+    state: &AppState,
+    trace_id: Uuid,
+    params: &Value,
+) -> anyhow::Result<Value> {
+    let plan_id = required_uuid(params, "plan_id", "winget.install.approve")?;
+    let expected_hash = required_string(params, "plan_hash", "winget.install.approve")?;
+    let confirmation = required_string(params, "confirmation", "winget.install.approve")?;
+    let stored = state
+        .storage
+        .get_action_plan(plan_id)?
+        .with_context(|| format!("install plan not found: {plan_id}"))?;
+    let plan: WingetInstallPlan = serde_json::from_str(&stored.record_json)?;
+    let now = Utc::now();
+    let receipt =
+        build_approval_receipt(&plan, &confirmation, now, 300).map_err(anyhow::Error::msg)?;
+    let mut approved_plan = plan.clone();
+    approved_plan.status = InstallPlanStatus::ApprovedExecutionDisabled;
+    approved_plan.approval_challenge = None;
+    approved_plan.single_safest_next_action =
+        "Execution remains disabled. A future execution slice must revalidate identity, installed state, approval expiry, lock ownership, elevation, and agreements."
+            .to_owned();
+    let updated_plan_json = serde_json::to_string(&approved_plan)?;
+    let stored_receipt = StoredApprovalReceipt {
+        id: receipt.approval_id,
+        plan_id: receipt.plan_id,
+        plan_hash: receipt.plan_hash.clone(),
+        approved_at: receipt.approved_at,
+        expires_at: receipt.expires_at,
+        resource_key: receipt.lock_key.clone(),
+        record_json: serde_json::to_string(&receipt)?,
+    };
+    let lock = StoredResourceLock {
+        resource_key: receipt.lock_key.clone(),
+        holder_plan_id: receipt.plan_id,
+        acquired_at: receipt.approved_at,
+        expires_at: receipt.lock_expires_at,
+    };
+    state.storage.approve_action_plan(
+        plan_id,
+        &expected_hash,
+        &confirmation,
+        &updated_plan_json,
+        &stored_receipt,
+        &lock,
+        now,
+    )?;
+    let evidence = EvidenceRecord::new(
+        trace_id,
+        EvidenceKind::AdapterInvocation,
+        format!("winget-approval:{}", receipt.approval_id),
+        "Governed WinGet install plan approved while execution remained disabled",
+        "toolos.daemon.governance",
+        json!({"plan": approved_plan, "receipt": receipt, "lock": lock}),
+        vec![
+            "Approval is short-lived and bound to one immutable plan hash".to_owned(),
+            "The local lock cannot block WinGet processes started outside ToolOS".to_owned(),
+            "No installer, agreement acceptance, elevation, or machine mutation occurred"
+                .to_owned(),
+        ],
+    )?;
+    record_evidence(state, trace_id, &evidence, "WINGET_INSTALL_APPROVAL")?;
+    state.storage.append_event(
+        trace_id,
+        "winget.install.plan.approved",
+        &json!({
+            "plan_id": plan_id,
+            "approval_id": stored_receipt.id,
+            "lock_key": lock.resource_key,
+            "lock_expires_at": lock.expires_at,
+            "execution_enabled": false
+        }),
+    )?;
+    Ok(json!({
+        "plan": approved_plan,
+        "receipt": receipt,
+        "lock": lock,
+        "evidence": evidence
+    }))
+}
+
+fn winget_install_lock(state: &AppState) -> anyhow::Result<Value> {
+    let lock = state
+        .storage
+        .get_resource_lock("package-manager:winget", Utc::now())?;
+    Ok(json!({
+        "resource_key": "package-manager:winget",
+        "active": lock.is_some(),
+        "lock": lock
+    }))
+}
+
 fn winget_evidence(
     trace_id: Uuid,
     payload: &Value,
@@ -356,6 +529,24 @@ fn capabilities() -> Value {
             "status": "IMPLEMENTED"
         },
         {
+            "capability_id": "package.install.plan.winget",
+            "provider_id": "toolos.daemon.governance",
+            "blast_radius": "LOCAL_METADATA_WRITE",
+            "status": "IMPLEMENTED"
+        },
+        {
+            "capability_id": "package.install.approve.winget",
+            "provider_id": "toolos.daemon.governance",
+            "blast_radius": "LOCAL_METADATA_WRITE",
+            "status": "IMPLEMENTED_EXECUTION_DISABLED"
+        },
+        {
+            "capability_id": "package.install.execute.winget",
+            "provider_id": "toolos.adapter.winget",
+            "blast_radius": "USER_PROFILE_WRITE_OR_MACHINE_WRITE",
+            "status": "DISABLED"
+        },
+        {
             "capability_id": "package.preview.install",
             "provider_id": "toolos.adapter.winget",
             "blast_radius": "USER_PROFILE_WRITE_OR_MACHINE_WRITE",
@@ -405,6 +596,30 @@ fn required_path(params: &Value, method: &str) -> anyhow::Result<String> {
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
         .with_context(|| format!("{method} requires a non-empty string 'path' parameter"))
+}
+
+fn required_string(params: &Value, key: &str, method: &str) -> anyhow::Result<String> {
+    params
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .with_context(|| format!("{method} requires a non-empty string '{key}' parameter"))
+}
+
+fn required_uuid(params: &Value, key: &str, method: &str) -> anyhow::Result<Uuid> {
+    let value = required_string(params, key, method)?;
+    Uuid::parse_str(&value).with_context(|| format!("{method} requires a UUID '{key}' parameter"))
+}
+
+fn install_plan_status(status: &InstallPlanStatus) -> &'static str {
+    match status {
+        InstallPlanStatus::AwaitingApproval => "AWAITING_APPROVAL",
+        InstallPlanStatus::Blocked => "BLOCKED",
+        InstallPlanStatus::ApprovedExecutionDisabled => "APPROVED_EXECUTION_DISABLED",
+        InstallPlanStatus::Expired => "EXPIRED",
+    }
 }
 
 fn bounded_limit(params: &Value, default: usize) -> usize {
@@ -541,6 +756,34 @@ mod tests {
             value.get("capability_id").and_then(Value::as_str)
                 == Some("package.installed.query.winget")
         }));
+    }
+
+    #[test]
+    fn capabilities_include_governed_install_plan_but_disable_execution() {
+        let values = capabilities()
+            .as_array()
+            .expect("capabilities array")
+            .clone();
+        assert!(values.iter().any(|value| {
+            value.get("capability_id").and_then(Value::as_str)
+                == Some("package.install.plan.winget")
+                && value.get("status").and_then(Value::as_str) == Some("IMPLEMENTED")
+        }));
+        assert!(values.iter().any(|value| {
+            value.get("capability_id").and_then(Value::as_str)
+                == Some("package.install.execute.winget")
+                && value.get("status").and_then(Value::as_str) == Some("DISABLED")
+        }));
+    }
+
+    #[test]
+    fn required_uuid_rejects_invalid_values() {
+        assert!(required_uuid(
+            &json!({"plan_id": "not-a-uuid"}),
+            "plan_id",
+            "winget.install.plan.get"
+        )
+        .is_err());
     }
 
     #[test]

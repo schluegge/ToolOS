@@ -6,6 +6,7 @@ import {
   type WingetPackageSelector,
   type WingetResolutionReport,
 } from "./api";
+import { InstallPlanPanel } from "./InstallPlanPanel";
 import "./winget.css";
 
 type Props = {
@@ -175,6 +176,12 @@ export function WingetPanel({ disabled = false, onEvidence }: Props) {
               <li key={limitation}>{limitation}</li>
             ))}
           </ul>
+
+          <InstallPlanPanel
+            selector={result.selector}
+            disabled={disabled}
+            onEvidence={onEvidence}
+          />
         </div>
       ) : null}
     </section>
