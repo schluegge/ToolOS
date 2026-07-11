@@ -63,6 +63,35 @@ enum Command {
         #[arg(long, value_enum)]
         scope: Option<WingetScope>,
     },
+    /// Create a governed WinGet install plan without executing the installer.
+    WingetInstallPlan {
+        #[arg(long)]
+        id: String,
+        #[arg(long, default_value = "winget")]
+        source: String,
+        #[arg(long)]
+        version: Option<String>,
+        #[arg(long, value_enum)]
+        scope: Option<WingetScope>,
+        #[arg(long)]
+        architecture: Option<String>,
+    },
+    /// Approve one immutable install-plan hash for a short local window.
+    WingetInstallApprove {
+        #[arg(long)]
+        plan_id: String,
+        #[arg(long)]
+        plan_hash: String,
+        #[arg(long)]
+        confirmation: String,
+    },
+    /// Show the current ToolOS WinGet package-manager lock.
+    WingetInstallLock,
+    /// Get one persisted install plan by UUID.
+    WingetInstallPlanGet {
+        #[arg(long)]
+        plan_id: String,
+    },
     /// List persisted evidence records.
     Evidence {
         #[arg(long, default_value_t = 50)]
@@ -116,6 +145,39 @@ async fn main() -> anyhow::Result<()> {
                 "scope": scope.map(|value| value.as_str()),
                 "architecture": Value::Null
             }),
+        ),
+        Command::WingetInstallPlan {
+            id,
+            source,
+            version,
+            scope,
+            architecture,
+        } => (
+            "winget.install.plan".to_owned(),
+            json!({
+                "package_id": id,
+                "source": source,
+                "version": version,
+                "scope": scope.map(|value| value.as_str()),
+                "architecture": architecture
+            }),
+        ),
+        Command::WingetInstallApprove {
+            plan_id,
+            plan_hash,
+            confirmation,
+        } => (
+            "winget.install.approve".to_owned(),
+            json!({
+                "plan_id": plan_id,
+                "plan_hash": plan_hash,
+                "confirmation": confirmation
+            }),
+        ),
+        Command::WingetInstallLock => ("winget.install.lock".to_owned(), json!({})),
+        Command::WingetInstallPlanGet { plan_id } => (
+            "winget.install.plan.get".to_owned(),
+            json!({"plan_id": plan_id}),
         ),
         Command::Evidence { limit } => ("evidence.list".to_owned(), json!({"limit": limit})),
         Command::Events { limit } => ("events.replay".to_owned(), json!({"limit": limit})),
@@ -204,6 +266,33 @@ mod tests {
             }
             _ => panic!("wrong command"),
         }
+    }
+
+    #[test]
+    fn clap_parses_governed_install_plan_and_approval() {
+        let cli = Cli::try_parse_from([
+            "toolos",
+            "winget-install-plan",
+            "--id",
+            "Git.Git",
+            "--scope",
+            "user",
+        ])
+        .expect("parse install plan");
+        assert!(matches!(cli.command, Command::WingetInstallPlan { .. }));
+
+        let cli = Cli::try_parse_from([
+            "toolos",
+            "winget-install-approve",
+            "--plan-id",
+            "00000000-0000-0000-0000-000000000001",
+            "--plan-hash",
+            "abc",
+            "--confirmation",
+            "APPROVE INSTALL Git.Git abc",
+        ])
+        .expect("parse approval");
+        assert!(matches!(cli.command, Command::WingetInstallApprove { .. }));
     }
 
     #[test]

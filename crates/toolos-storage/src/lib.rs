@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use rusqlite_migration::{Migrations, M};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use toolos_domain::{EventRecord, EvidenceRecord};
 use uuid::Uuid;
@@ -40,6 +41,37 @@ const MIGRATION_SLICE: &[M<'_>] = &[
             updated_at TEXT NOT NULL
         );",
     ),
+    M::up(
+        "CREATE TABLE action_plan (
+            id TEXT PRIMARY KEY,
+            capability TEXT NOT NULL,
+            resource_key TEXT NOT NULL,
+            status TEXT NOT NULL,
+            plan_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            approval_phrase TEXT NOT NULL,
+            record_json TEXT NOT NULL
+        );
+        CREATE INDEX action_plan_status_idx ON action_plan(status, expires_at);
+        CREATE TABLE approval_receipt (
+            id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL UNIQUE,
+            plan_hash TEXT NOT NULL,
+            approved_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            resource_key TEXT NOT NULL,
+            record_json TEXT NOT NULL,
+            FOREIGN KEY(plan_id) REFERENCES action_plan(id)
+        );
+        CREATE TABLE resource_lock (
+            resource_key TEXT PRIMARY KEY,
+            holder_plan_id TEXT NOT NULL,
+            acquired_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            FOREIGN KEY(holder_plan_id) REFERENCES action_plan(id)
+        );",
+    ),
 ];
 const MIGRATIONS: Migrations<'_> = Migrations::from_slice(MIGRATION_SLICE);
 
@@ -57,6 +89,65 @@ pub enum StorageError {
     Uuid(#[from] uuid::Error),
     #[error("invalid timestamp in database: {0}")]
     Timestamp(#[from] chrono::ParseError),
+    #[error("action plan not found: {0}")]
+    PlanNotFound(String),
+    #[error("action plan expired: {0}")]
+    PlanExpired(String),
+    #[error("action plan hash mismatch")]
+    PlanHashMismatch,
+    #[error("approval phrase mismatch")]
+    ApprovalPhraseMismatch,
+    #[error("action plan is not awaiting approval: {0}")]
+    PlanNotApprovable(String),
+    #[error("resource lock {resource_key} is held by plan {holder_plan_id} until {expires_at}")]
+    ResourceLocked {
+        resource_key: String,
+        holder_plan_id: String,
+        expires_at: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StoredActionPlan {
+    pub id: Uuid,
+    pub capability: String,
+    pub resource_key: String,
+    pub status: String,
+    pub plan_hash: String,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub approval_phrase: String,
+    pub record_json: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StoredApprovalReceipt {
+    pub id: Uuid,
+    pub plan_id: Uuid,
+    pub plan_hash: String,
+    pub approved_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub resource_key: String,
+    pub record_json: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StoredResourceLock {
+    pub resource_key: String,
+    pub holder_plan_id: Uuid,
+    pub acquired_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug)]
+pub struct ActionPlanApproval<'a> {
+    pub plan_id: Uuid,
+    pub expected_hash: &'a str,
+    pub confirmation: &'a str,
+    pub updated_plan_json: &'a str,
+    pub receipt: &'a StoredApprovalReceipt,
+    pub lock: &'a StoredResourceLock,
+    pub now: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone)]
@@ -167,6 +258,232 @@ impl Storage {
         Ok(events)
     }
 
+    pub fn store_action_plan(&self, plan: &StoredActionPlan) -> Result<(), StorageError> {
+        let connection = self.open_connection()?;
+        connection.execute(
+            "INSERT INTO action_plan (
+                id, capability, resource_key, status, plan_hash, created_at, expires_at,
+                approval_phrase, record_json
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                plan.id.to_string(),
+                plan.capability,
+                plan.resource_key,
+                plan.status,
+                plan.plan_hash,
+                plan.created_at.to_rfc3339(),
+                plan.expires_at.to_rfc3339(),
+                plan.approval_phrase,
+                plan.record_json,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_action_plan(&self, id: Uuid) -> Result<Option<StoredActionPlan>, StorageError> {
+        let connection = self.open_connection()?;
+        let row = connection
+            .query_row(
+                "SELECT capability, resource_key, status, plan_hash, created_at, expires_at,
+                        approval_phrase, record_json
+                 FROM action_plan WHERE id = ?1",
+                [id.to_string()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, String>(7)?,
+                    ))
+                },
+            )
+            .optional()?;
+        row.map(
+            |(
+                capability,
+                resource_key,
+                status,
+                plan_hash,
+                created_at,
+                expires_at,
+                approval_phrase,
+                record_json,
+            )| {
+                Ok(StoredActionPlan {
+                    id,
+                    capability,
+                    resource_key,
+                    status,
+                    plan_hash,
+                    created_at: DateTime::parse_from_rfc3339(&created_at)?.with_timezone(&Utc),
+                    expires_at: DateTime::parse_from_rfc3339(&expires_at)?.with_timezone(&Utc),
+                    approval_phrase,
+                    record_json,
+                })
+            },
+        )
+        .transpose()
+    }
+
+    pub fn approve_action_plan(
+        &self,
+        approval: &ActionPlanApproval<'_>,
+    ) -> Result<(), StorageError> {
+        let plan_id = approval.plan_id;
+        let expected_hash = approval.expected_hash;
+        let confirmation = approval.confirmation;
+        let updated_plan_json = approval.updated_plan_json;
+        let receipt = approval.receipt;
+        let lock = approval.lock;
+        let now = approval.now;
+        let mut connection = self.open_connection()?;
+        connection.set_transaction_behavior(TransactionBehavior::Immediate);
+        let transaction = connection.transaction()?;
+        let plan = transaction
+            .query_row(
+                "SELECT resource_key, status, plan_hash, expires_at, approval_phrase
+                 FROM action_plan WHERE id = ?1",
+                [plan_id.to_string()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| StorageError::PlanNotFound(plan_id.to_string()))?;
+        let (resource_key, status, plan_hash, expires_at, approval_phrase) = plan;
+        let expires_at = DateTime::parse_from_rfc3339(&expires_at)?.with_timezone(&Utc);
+        if now >= expires_at {
+            return Err(StorageError::PlanExpired(plan_id.to_string()));
+        }
+        if status != "AWAITING_APPROVAL" {
+            return Err(StorageError::PlanNotApprovable(status));
+        }
+        if plan_hash != expected_hash || receipt.plan_hash != expected_hash {
+            return Err(StorageError::PlanHashMismatch);
+        }
+        if confirmation.trim() != approval_phrase {
+            return Err(StorageError::ApprovalPhraseMismatch);
+        }
+        if resource_key != lock.resource_key || resource_key != receipt.resource_key {
+            return Err(StorageError::PlanNotApprovable(
+                "approval resource does not match plan".to_owned(),
+            ));
+        }
+
+        let existing = transaction
+            .query_row(
+                "SELECT holder_plan_id, acquired_at, expires_at FROM resource_lock
+                 WHERE resource_key = ?1",
+                [&resource_key],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        if let Some((holder_plan_id, _acquired_at, lock_expires_at)) = existing {
+            let parsed = DateTime::parse_from_rfc3339(&lock_expires_at)?.with_timezone(&Utc);
+            if parsed > now && holder_plan_id != plan_id.to_string() {
+                return Err(StorageError::ResourceLocked {
+                    resource_key,
+                    holder_plan_id,
+                    expires_at: lock_expires_at,
+                });
+            }
+            transaction.execute(
+                "DELETE FROM resource_lock WHERE resource_key = ?1",
+                [&lock.resource_key],
+            )?;
+        }
+
+        transaction.execute(
+            "INSERT INTO resource_lock (resource_key, holder_plan_id, acquired_at, expires_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                lock.resource_key,
+                lock.holder_plan_id.to_string(),
+                lock.acquired_at.to_rfc3339(),
+                lock.expires_at.to_rfc3339(),
+            ],
+        )?;
+        transaction.execute(
+            "UPDATE action_plan SET status = ?1, record_json = ?2 WHERE id = ?3",
+            params![
+                "APPROVED_EXECUTION_DISABLED",
+                updated_plan_json,
+                plan_id.to_string()
+            ],
+        )?;
+        transaction.execute(
+            "INSERT INTO approval_receipt (
+                id, plan_id, plan_hash, approved_at, expires_at, resource_key, record_json
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                receipt.id.to_string(),
+                receipt.plan_id.to_string(),
+                receipt.plan_hash,
+                receipt.approved_at.to_rfc3339(),
+                receipt.expires_at.to_rfc3339(),
+                receipt.resource_key,
+                receipt.record_json,
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn get_resource_lock(
+        &self,
+        resource_key: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Option<StoredResourceLock>, StorageError> {
+        let connection = self.open_connection()?;
+        let row = connection
+            .query_row(
+                "SELECT holder_plan_id, acquired_at, expires_at FROM resource_lock
+                 WHERE resource_key = ?1",
+                [resource_key],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((holder_plan_id, acquired_at, expires_at)) = row else {
+            return Ok(None);
+        };
+        let expires_at = DateTime::parse_from_rfc3339(&expires_at)?.with_timezone(&Utc);
+        if expires_at <= now {
+            connection.execute(
+                "DELETE FROM resource_lock WHERE resource_key = ?1",
+                [resource_key],
+            )?;
+            return Ok(None);
+        }
+        Ok(Some(StoredResourceLock {
+            resource_key: resource_key.to_owned(),
+            holder_plan_id: Uuid::parse_str(&holder_plan_id)?,
+            acquired_at: DateTime::parse_from_rfc3339(&acquired_at)?.with_timezone(&Utc),
+            expires_at,
+        }))
+    }
+
     pub fn set_metadata(&self, key: &str, value: &str) -> Result<(), StorageError> {
         let connection = self.open_connection()?;
         connection.execute(
@@ -213,6 +530,112 @@ mod tests {
     #[test]
     fn migrations_are_valid() {
         validate_migrations().expect("valid migrations");
+    }
+
+    #[test]
+    fn plan_approval_is_atomic_and_locks_resource() {
+        let directory = tempdir().expect("temp directory");
+        let storage = Storage::initialize(directory.path().join("toolos.db")).expect("storage");
+        let now = Utc::now();
+        let plan_id = Uuid::new_v4();
+        let plan = StoredActionPlan {
+            id: plan_id,
+            capability: "package.install.plan.winget".to_owned(),
+            resource_key: "package-manager:winget".to_owned(),
+            status: "AWAITING_APPROVAL".to_owned(),
+            plan_hash: "abc".to_owned(),
+            created_at: now,
+            expires_at: now + chrono::Duration::minutes(10),
+            approval_phrase: "APPROVE".to_owned(),
+            record_json: "{}".to_owned(),
+        };
+        storage.store_action_plan(&plan).expect("store plan");
+        let receipt = StoredApprovalReceipt {
+            id: Uuid::new_v4(),
+            plan_id,
+            plan_hash: "abc".to_owned(),
+            approved_at: now,
+            expires_at: now + chrono::Duration::minutes(5),
+            resource_key: plan.resource_key.clone(),
+            record_json: "{}".to_owned(),
+        };
+        let lock = StoredResourceLock {
+            resource_key: plan.resource_key.clone(),
+            holder_plan_id: plan_id,
+            acquired_at: now,
+            expires_at: receipt.expires_at,
+        };
+        storage
+            .approve_action_plan(&ActionPlanApproval {
+                plan_id,
+                expected_hash: "abc",
+                confirmation: "APPROVE",
+                updated_plan_json: "{}",
+                receipt: &receipt,
+                lock: &lock,
+                now,
+            })
+            .expect("approve plan");
+        let saved = storage
+            .get_action_plan(plan_id)
+            .expect("get plan")
+            .expect("plan");
+        assert_eq!(saved.status, "APPROVED_EXECUTION_DISABLED");
+        assert_eq!(
+            storage
+                .get_resource_lock("package-manager:winget", now)
+                .expect("lock")
+                .expect("active lock")
+                .holder_plan_id,
+            plan_id
+        );
+    }
+
+    #[test]
+    fn plan_approval_rejects_wrong_phrase() {
+        let directory = tempdir().expect("temp directory");
+        let storage = Storage::initialize(directory.path().join("toolos.db")).expect("storage");
+        let now = Utc::now();
+        let plan_id = Uuid::new_v4();
+        let plan = StoredActionPlan {
+            id: plan_id,
+            capability: "package.install.plan.winget".to_owned(),
+            resource_key: "package-manager:winget".to_owned(),
+            status: "AWAITING_APPROVAL".to_owned(),
+            plan_hash: "abc".to_owned(),
+            created_at: now,
+            expires_at: now + chrono::Duration::minutes(10),
+            approval_phrase: "APPROVE".to_owned(),
+            record_json: "{}".to_owned(),
+        };
+        storage.store_action_plan(&plan).expect("store plan");
+        let receipt = StoredApprovalReceipt {
+            id: Uuid::new_v4(),
+            plan_id,
+            plan_hash: "abc".to_owned(),
+            approved_at: now,
+            expires_at: now + chrono::Duration::minutes(5),
+            resource_key: plan.resource_key.clone(),
+            record_json: "{}".to_owned(),
+        };
+        let lock = StoredResourceLock {
+            resource_key: plan.resource_key,
+            holder_plan_id: plan_id,
+            acquired_at: now,
+            expires_at: receipt.expires_at,
+        };
+        assert!(matches!(
+            storage.approve_action_plan(&ActionPlanApproval {
+                plan_id,
+                expected_hash: "abc",
+                confirmation: "WRONG",
+                updated_plan_json: "{}",
+                receipt: &receipt,
+                lock: &lock,
+                now,
+            }),
+            Err(StorageError::ApprovalPhraseMismatch)
+        ));
     }
 
     #[test]

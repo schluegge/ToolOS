@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://toolos.local/schemas/winget-install-plan.schema.json",
+  "title": "ToolOS governed WinGet install plan",
+  "type": "object",
+  "required": [
+    "plan_id",
+    "plan_hash",
+    "status",
+    "selector",
+    "resolution",
+    "installed_state",
+    "install_preview",
+    "approval_allowed",
+    "lock_key",
+    "created_at",
+    "expires_at",
+    "execution_enabled",
+    "blockers",
+    "pre_execution_requirements",
+    "verification",
+    "rollback",
+    "limitations",
+    "single_safest_next_action"
+  ],
+  "properties": {
+    "plan_id": { "type": "string", "format": "uuid" },
+    "plan_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "status": {
+      "enum": ["AWAITING_APPROVAL", "BLOCKED", "APPROVED_EXECUTION_DISABLED", "EXPIRED"]
+    },
+    "selector": { "type": "object" },
+    "resolution": { "type": "object" },
+    "installed_state": { "type": "object" },
+    "install_preview": { "type": "object" },
+    "approval_allowed": { "type": "boolean" },
+    "approval_challenge": {
+      "type": ["object", "null"],
+      "properties": {
+        "required_phrase": { "type": "string", "minLength": 1 },
+        "expires_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "lock_key": { "const": "package-manager:winget" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "execution_enabled": { "const": false },
+    "blockers": { "type": "array", "items": { "type": "string" } },
+    "pre_execution_requirements": { "type": "array", "items": { "type": "string" } },
+    "verification": { "type": "array", "items": { "type": "string" } },
+    "rollback": { "type": "array", "items": { "type": "string" } },
+    "limitations": { "type": "array", "items": { "type": "string" } },
+    "single_safest_next_action": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}
