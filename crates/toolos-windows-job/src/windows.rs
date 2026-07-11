@@ -14,10 +14,10 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
 use windows_sys::Win32::System::JobObjects::{
-    CreateJobObjectW, QueryInformationJobObject, SetInformationJobObject, TerminateJobObject,
+    CreateJobObjectW, JobObjectBasicAccountingInformation, JobObjectExtendedLimitInformation,
+    QueryInformationJobObject, SetInformationJobObject, TerminateJobObject,
     JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JobObjectBasicAccountingInformation,
-    JobObjectExtendedLimitInformation,
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 use windows_sys::Win32::System::Pipes::CreatePipe;
 use windows_sys::Win32::System::Threading::{
@@ -29,8 +29,8 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::{
-    duration_ms, CancellationReason, CancellationToken, ContainedOutput, ContainmentReport, JobError,
-    ProcessSpec, Result, TerminationReason,
+    duration_ms, CancellationReason, CancellationToken, ContainedOutput, ContainmentReport,
+    JobError, ProcessSpec, Result, TerminationReason,
 };
 
 const HANDLE_FLAG_INHERIT: u32 = 0x0000_0001;
@@ -353,14 +353,8 @@ impl PipePair {
         };
         let mut read_handle = null_mut();
         let mut write_handle = null_mut();
-        let created = unsafe {
-            CreatePipe(
-                &mut read_handle,
-                &mut write_handle,
-                &mut attributes,
-                0,
-            )
-        };
+        let created =
+            unsafe { CreatePipe(&mut read_handle, &mut write_handle, &mut attributes, 0) };
         if created == 0 {
             return Err(last_error("CreatePipe"));
         }
@@ -396,9 +390,8 @@ impl AttributeList {
         let word_count = bytes.div_ceil(size_of::<usize>());
         let mut buffer = vec![0usize; word_count];
         let pointer = buffer.as_mut_ptr().cast();
-        let initialized = unsafe {
-            InitializeProcThreadAttributeList(pointer, attribute_count, 0, &mut bytes)
-        };
+        let initialized =
+            unsafe { InitializeProcThreadAttributeList(pointer, attribute_count, 0, &mut bytes) };
         if initialized == 0 {
             return Err(last_error("InitializeProcThreadAttributeList"));
         }
@@ -408,17 +401,14 @@ impl AttributeList {
         })
     }
 
-    fn add(&mut self, attribute: usize, value: *const core::ffi::c_void, bytes: usize) -> Result<()> {
+    fn add(
+        &mut self,
+        attribute: usize,
+        value: *const core::ffi::c_void,
+        bytes: usize,
+    ) -> Result<()> {
         let updated = unsafe {
-            UpdateProcThreadAttribute(
-                self.pointer,
-                0,
-                attribute,
-                value,
-                bytes,
-                null_mut(),
-                null(),
-            )
+            UpdateProcThreadAttribute(self.pointer, 0, attribute, value, bytes, null_mut(), null())
         };
         if updated == 0 {
             return Err(last_error("UpdateProcThreadAttribute"));
@@ -657,6 +647,9 @@ mod tests {
         let token = CancellationToken::default();
         assert!(token.cancel(CancellationReason::ExplicitCancellation));
         assert!(!token.cancel(CancellationReason::DaemonShutdown));
-        assert_eq!(token.reason(), Some(CancellationReason::ExplicitCancellation));
+        assert_eq!(
+            token.reason(),
+            Some(CancellationReason::ExplicitCancellation)
+        );
     }
 }

@@ -1,0 +1,38 @@
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded proc-macro2 v1.0.106
+  Downloaded thiserror v2.0.18
+  Downloaded windows-link v0.2.1
+  Downloaded quote v1.0.46
+  Downloaded thiserror-impl v2.0.18
+  Downloaded unicode-ident v1.0.24
+  Downloaded syn v2.0.118
+  Downloaded windows-sys v0.61.2
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.46
+   Compiling thiserror v2.0.18
+    Checking windows-link v0.2.1
+    Checking windows-sys v0.61.2
+   Compiling syn v2.0.118
+   Compiling thiserror-impl v2.0.18
+    Checking toolos-windows-job v0.1.0 (D:\a\ToolOS\ToolOS\crates\toolos-windows-job)
+error: the function `CreatePipe` doesn't need a mutable reference
+   --> crates\toolos-windows-job\src\windows.rs:357:70
+    |
+357 |             unsafe { CreatePipe(&mut read_handle, &mut write_handle, &mut attributes, 0) };
+    |                                                                      ^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unnecessary_mut_passed
+    = note: `-D clippy::unnecessary-mut-passed` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unnecessary_mut_passed)]`
+help: remove this `mut`
+    |
+357 -             unsafe { CreatePipe(&mut read_handle, &mut write_handle, &mut attributes, 0) };
+357 +             unsafe { CreatePipe(&mut read_handle, &mut write_handle, &attributes, 0) };
+    |
+
+error: could not compile `toolos-windows-job` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `toolos-windows-job` (lib test) due to 1 previous error
+

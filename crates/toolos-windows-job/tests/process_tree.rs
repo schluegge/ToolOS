@@ -41,7 +41,10 @@ fn timeout_terminates_nested_child() {
         .wait(&CancellationToken::default())
         .expect("wait for timeout containment");
 
-    assert_eq!(output.containment.termination_reason, TerminationReason::TimedOut);
+    assert_eq!(
+        output.containment.termination_reason,
+        TerminationReason::TimedOut
+    );
     assert!(output.containment.termination_requested);
     assert!(output.containment.termination_confirmed);
     assert_eq!(output.containment.active_processes_after, Some(0));
@@ -125,10 +128,8 @@ impl TestCase {
             .duration_since(UNIX_EPOCH)
             .expect("system time")
             .as_nanos();
-        let directory = std::env::temp_dir().join(format!(
-            "toolos-job-{name}-{}-{nonce}",
-            std::process::id()
-        ));
+        let directory =
+            std::env::temp_dir().join(format!("toolos-job-{name}-{}-{nonce}", std::process::id()));
         fs::create_dir_all(&directory).expect("create test directory");
         Self {
             ready: directory.join("ready.txt"),
