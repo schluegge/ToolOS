@@ -8,10 +8,15 @@ use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
+use toolos_actions::{
+    approve_plan, create_install_plan, create_uninstall_plan, reject_plan, ActionStatus,
+    ApprovalRequest, WingetActionPlan,
+};
 use toolos_domain::{
     EvidenceKind, EvidenceRecord, HealthReport, ProjectInspectParams, RpcRequest, RpcResponse,
 };
 use toolos_storage::Storage;
+use toolos_winget::WingetResolutionReport;
 use tracing::{error, info, instrument};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
@@ -127,126 +132,30 @@ async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> any
             };
             Ok(serde_json::to_value(report)?)
         }
-        "machine.inspect" => {
-            let payload = invoke_adapter(
-                &state.system_adapter_path,
-                "machine.inspect",
-                json!({}),
-                Duration::from_secs(10),
-            )
-            .await?;
-            let evidence = EvidenceRecord::new(
-                trace_id,
-                EvidenceKind::MachineInventory,
-                "local-machine",
-                "Host metadata and PATH-visible tool candidates were inspected",
-                "toolos.adapter.system",
-                payload.clone(),
-                vec![
-                    "PATH presence does not prove version, authentication, compatibility, or health"
-                        .to_owned(),
-                    "No detected executable was launched".to_owned(),
-                ],
-            )?;
-            record_evidence(state, trace_id, &evidence, "MACHINE_INVENTORY")?;
-            Ok(json!({"snapshot": payload, "evidence": evidence}))
+        "machine.inspect" => inspect_machine(state, trace_id).await,
+        "project.inspect" => inspect_project(state, trace_id, request).await,
+        "archive.inspect" => inspect_archive(state, trace_id, request).await,
+        "winget.resolve" => resolve_winget(state, trace_id, request.params.clone()).await,
+        "winget.plan.install" => {
+            create_winget_plan(state, trace_id, request.params.clone(), true).await
         }
-        "project.inspect" => {
-            let params: ProjectInspectParams = serde_json::from_value(request.params.clone())
-                .context("project.inspect requires {\"path\": \"...\"}")?;
-            let payload = invoke_adapter(
-                &state.system_adapter_path,
-                "project.inspect",
-                json!({"path": params.path}),
-                Duration::from_secs(10),
-            )
-            .await?;
-            let scope = payload
-                .get("canonical_path")
-                .and_then(Value::as_str)
-                .unwrap_or("selected-project")
-                .to_owned();
-            let evidence = EvidenceRecord::new(
-                trace_id,
-                EvidenceKind::ProjectIdentity,
-                scope,
-                "Selected project identity and top-level markers were inspected",
-                "toolos.adapter.system",
-                payload.clone(),
-                vec![
-                    "Marker files indicate probable structure, not build health".to_owned(),
-                    "Repository scripts and package lifecycle hooks were not executed".to_owned(),
-                ],
-            )?;
-            record_evidence(state, trace_id, &evidence, "PROJECT_IDENTITY")?;
-            Ok(json!({"snapshot": payload, "evidence": evidence}))
+        "winget.plan.uninstall" => {
+            create_winget_plan(state, trace_id, request.params.clone(), false).await
         }
-        "archive.inspect" => {
-            let path = required_path(&request.params, "archive.inspect")?;
-            let payload = invoke_adapter(
-                &state.system_adapter_path,
-                "archive.inspect",
-                json!({"path": path}),
-                Duration::from_secs(10),
-            )
-            .await?;
-            let scope = payload
-                .get("canonical_path")
-                .and_then(Value::as_str)
-                .unwrap_or("selected-archive")
-                .to_owned();
-            let evidence = EvidenceRecord::new(
-                trace_id,
-                EvidenceKind::AdapterInvocation,
-                scope,
-                "Selected ZIP structure and extraction paths were inspected without extraction",
-                "toolos.adapter.system",
-                payload.clone(),
-                vec![
-                    "The archive was not extracted and no entry contents were executed".to_owned(),
-                    "Structural acceptance is not a malware, secret, license, or content trust verdict"
-                        .to_owned(),
-                ],
-            )?;
-            record_evidence(state, trace_id, &evidence, "ARCHIVE_INSPECTION")?;
-            Ok(json!({"snapshot": payload, "evidence": evidence}))
+        "actions.list" => {
+            let limit = bounded_limit(&request.params, 50);
+            Ok(serde_json::to_value(state.storage.list_action_plans(limit)?)?)
         }
-        "winget.resolve" => {
-            let payload = invoke_adapter(
-                &state.winget_adapter_path,
-                "winget.resolve",
-                request.params.clone(),
-                Duration::from_secs(55),
-            )
-            .await?;
-            let package_id = payload
-                .pointer("/selector/package_id")
-                .and_then(Value::as_str)
-                .unwrap_or("selected-package");
-            let source = payload
-                .pointer("/selector/source")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown-source");
-            let status = payload
-                .get("status")
-                .and_then(Value::as_str)
-                .unwrap_or("UNKNOWN");
-            let evidence = EvidenceRecord::new(
-                trace_id,
-                EvidenceKind::AdapterInvocation,
-                format!("winget:{source}:{package_id}"),
-                format!("WinGet exact package resolution completed with status {status}"),
-                "toolos.adapter.winget",
-                payload.clone(),
-                vec![
-                    "Provider output is retained without locale-dependent table parsing".to_owned(),
-                    "Install and uninstall commands remain disabled previews".to_owned(),
-                    "Package and source agreements were not accepted automatically".to_owned(),
-                ],
-            )?;
-            record_evidence(state, trace_id, &evidence, "WINGET_PACKAGE_RESOLUTION")?;
-            Ok(json!({"snapshot": payload, "evidence": evidence}))
+        "actions.get" => {
+            let id = required_uuid(&request.params, "plan_id", "actions.get")?;
+            let plan = state
+                .storage
+                .get_action_plan(id)?
+                .with_context(|| format!("action plan {id} was not found"))?;
+            Ok(serde_json::to_value(plan)?)
         }
+        "actions.approve" => approve_action(state, trace_id, request.params.clone()),
+        "actions.reject" => reject_action(state, trace_id, request.params.clone()),
         "evidence.list" => {
             let limit = bounded_limit(&request.params, 50);
             Ok(serde_json::to_value(state.storage.list_evidence(limit)?)?)
@@ -255,46 +164,286 @@ async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> any
             let limit = bounded_limit(&request.params, 100);
             Ok(serde_json::to_value(state.storage.replay_events(limit)?)?)
         }
-        "capabilities.list" => Ok(json!([
-            {
-                "capability_id": "machine.inspect",
-                "provider_id": "toolos.adapter.system",
-                "blast_radius": "READ_ONLY",
-                "status": "IMPLEMENTED"
-            },
-            {
-                "capability_id": "project.inspect",
-                "provider_id": "toolos.adapter.system",
-                "blast_radius": "READ_ONLY",
-                "status": "IMPLEMENTED"
-            },
-            {
-                "capability_id": "archive.inspect",
-                "provider_id": "toolos.adapter.system",
-                "blast_radius": "READ_ONLY",
-                "status": "IMPLEMENTED"
-            },
-            {
-                "capability_id": "package.resolve.winget",
-                "provider_id": "toolos.adapter.winget",
-                "blast_radius": "READ_ONLY",
-                "status": "IMPLEMENTED"
-            },
-            {
-                "capability_id": "package.preview.install",
-                "provider_id": "toolos.adapter.winget",
-                "blast_radius": "USER_PROFILE_WRITE_OR_MACHINE_WRITE",
-                "status": "PREVIEW_ONLY"
-            },
-            {
-                "capability_id": "package.preview.uninstall",
-                "provider_id": "toolos.adapter.winget",
-                "blast_radius": "USER_PROFILE_WRITE_OR_MACHINE_WRITE",
-                "status": "PREVIEW_ONLY"
-            }
-        ])),
+        "capabilities.list" => Ok(capabilities()),
         _ => Err(anyhow!("unknown daemon method: {}", request.method)),
     }
+}
+
+async fn inspect_machine(state: &AppState, trace_id: Uuid) -> anyhow::Result<Value> {
+    let payload = invoke_adapter(
+        &state.system_adapter_path,
+        "machine.inspect",
+        json!({}),
+        Duration::from_secs(10),
+    )
+    .await?;
+    let evidence = EvidenceRecord::new(
+        trace_id,
+        EvidenceKind::MachineInventory,
+        "local-machine",
+        "Host metadata and PATH-visible tool candidates were inspected",
+        "toolos.adapter.system",
+        payload.clone(),
+        vec![
+            "PATH presence does not prove version, authentication, compatibility, or health"
+                .to_owned(),
+            "No detected executable was launched".to_owned(),
+        ],
+    )?;
+    record_evidence(state, trace_id, &evidence, "MACHINE_INVENTORY")?;
+    Ok(json!({"snapshot": payload, "evidence": evidence}))
+}
+
+async fn inspect_project(
+    state: &AppState,
+    trace_id: Uuid,
+    request: &RpcRequest,
+) -> anyhow::Result<Value> {
+    let params: ProjectInspectParams = serde_json::from_value(request.params.clone())
+        .context("project.inspect requires {\"path\": \"...\"}")?;
+    let payload = invoke_adapter(
+        &state.system_adapter_path,
+        "project.inspect",
+        json!({"path": params.path}),
+        Duration::from_secs(10),
+    )
+    .await?;
+    let scope = payload
+        .get("canonical_path")
+        .and_then(Value::as_str)
+        .unwrap_or("selected-project")
+        .to_owned();
+    let evidence = EvidenceRecord::new(
+        trace_id,
+        EvidenceKind::ProjectIdentity,
+        scope,
+        "Selected project identity and top-level markers were inspected",
+        "toolos.adapter.system",
+        payload.clone(),
+        vec![
+            "Marker files indicate probable structure, not build health".to_owned(),
+            "Repository scripts and package lifecycle hooks were not executed".to_owned(),
+        ],
+    )?;
+    record_evidence(state, trace_id, &evidence, "PROJECT_IDENTITY")?;
+    Ok(json!({"snapshot": payload, "evidence": evidence}))
+}
+
+async fn inspect_archive(
+    state: &AppState,
+    trace_id: Uuid,
+    request: &RpcRequest,
+) -> anyhow::Result<Value> {
+    let path = required_path(&request.params, "archive.inspect")?;
+    let payload = invoke_adapter(
+        &state.system_adapter_path,
+        "archive.inspect",
+        json!({"path": path}),
+        Duration::from_secs(10),
+    )
+    .await?;
+    let scope = payload
+        .get("canonical_path")
+        .and_then(Value::as_str)
+        .unwrap_or("selected-archive")
+        .to_owned();
+    let evidence = EvidenceRecord::new(
+        trace_id,
+        EvidenceKind::AdapterInvocation,
+        scope,
+        "Selected ZIP structure and extraction paths were inspected without extraction",
+        "toolos.adapter.system",
+        payload.clone(),
+        vec![
+            "The archive was not extracted and no entry contents were executed".to_owned(),
+            "Structural acceptance is not a malware, secret, license, or content trust verdict"
+                .to_owned(),
+        ],
+    )?;
+    record_evidence(state, trace_id, &evidence, "ARCHIVE_INSPECTION")?;
+    Ok(json!({"snapshot": payload, "evidence": evidence}))
+}
+
+async fn resolve_winget(
+    state: &AppState,
+    trace_id: Uuid,
+    params: Value,
+) -> anyhow::Result<Value> {
+    let payload = invoke_adapter(
+        &state.winget_adapter_path,
+        "winget.resolve",
+        params,
+        Duration::from_secs(55),
+    )
+    .await?;
+    let evidence = winget_resolution_evidence(trace_id, &payload)?;
+    record_evidence(
+        state,
+        trace_id,
+        &evidence,
+        "WINGET_PACKAGE_RESOLUTION",
+    )?;
+    Ok(json!({"snapshot": payload, "evidence": evidence}))
+}
+
+async fn create_winget_plan(
+    state: &AppState,
+    trace_id: Uuid,
+    params: Value,
+    install: bool,
+) -> anyhow::Result<Value> {
+    let payload = invoke_adapter(
+        &state.winget_adapter_path,
+        "winget.resolve",
+        params,
+        Duration::from_secs(55),
+    )
+    .await?;
+    let resolution: WingetResolutionReport = serde_json::from_value(payload.clone())
+        .context("WinGet adapter returned an invalid resolution report")?;
+    let resolution_evidence = winget_resolution_evidence(trace_id, &payload)?;
+    record_evidence(
+        state,
+        trace_id,
+        &resolution_evidence,
+        "WINGET_PACKAGE_RESOLUTION",
+    )?;
+
+    let plan = if install {
+        create_install_plan(trace_id, resolution, Utc::now())
+    } else {
+        create_uninstall_plan(trace_id, resolution, Utc::now())
+    }
+    .map_err(anyhow::Error::msg)?;
+    state.storage.create_action_plan(&plan)?;
+    state.storage.append_event(
+        trace_id,
+        "action.plan.created",
+        &json!({
+            "plan_id": plan.id,
+            "kind": plan.kind,
+            "status": plan.status,
+            "command_sha256": plan.command_sha256,
+            "expires_at": plan.expires_at,
+            "execution_available": plan.execution_available
+        }),
+    )?;
+    let plan_payload = serde_json::to_value(&plan)?;
+    let plan_evidence = EvidenceRecord::new(
+        trace_id,
+        EvidenceKind::AdapterInvocation,
+        format!("action-plan:{}", plan.id),
+        "A time-limited WinGet action plan was created; execution remains blocked",
+        "toolos.action-governance",
+        plan_payload,
+        vec![
+            "Approval does not execute the command".to_owned(),
+            "Process-tree cancellation and tested rollback are still missing".to_owned(),
+            "The plan expires after fifteen minutes and cannot be reused after state transition"
+                .to_owned(),
+        ],
+    )?;
+    record_evidence(state, trace_id, &plan_evidence, "ACTION_PLAN_CREATED")?;
+    Ok(json!({
+        "plan": plan,
+        "resolution_evidence": resolution_evidence,
+        "plan_evidence": plan_evidence
+    }))
+}
+
+fn approve_action(state: &AppState, trace_id: Uuid, params: Value) -> anyhow::Result<Value> {
+    let request: ApprovalRequest = serde_json::from_value(params)
+        .context("actions.approve requires plan_id, confirmation_phrase, and acknowledgements")?;
+    let plan = state
+        .storage
+        .get_action_plan(request.plan_id)?
+        .with_context(|| format!("action plan {} was not found", request.plan_id))?;
+
+    if Utc::now() >= plan.expires_at && plan.status == ActionStatus::WaitingApproval {
+        let mut expired = plan;
+        expired.status = ActionStatus::Expired;
+        state
+            .storage
+            .replace_action_plan(ActionStatus::WaitingApproval, &expired)?;
+        state.storage.append_event(
+            trace_id,
+            "action.plan.expired",
+            &json!({"plan_id": expired.id}),
+        )?;
+        return Err(anyhow!(
+            "action plan {} expired; create a fresh plan",
+            expired.id
+        ));
+    }
+
+    let approved = approve_plan(plan, &request, Utc::now()).map_err(anyhow::Error::msg)?;
+    state
+        .storage
+        .replace_action_plan(ActionStatus::WaitingApproval, &approved)?;
+    state.storage.append_event(
+        trace_id,
+        "action.plan.approved",
+        &json!({
+            "plan_id": approved.id,
+            "status": approved.status,
+            "execution_available": approved.execution_available,
+            "command_sha256": approved.command_sha256
+        }),
+    )?;
+    Ok(json!({
+        "plan": approved,
+        "outcome": "APPROVED_NOT_EXECUTED",
+        "single_safest_next_action": "Implement and prove Windows process-tree cancellation plus pre-install residual-state capture before enabling execution."
+    }))
+}
+
+fn reject_action(state: &AppState, trace_id: Uuid, params: Value) -> anyhow::Result<Value> {
+    let id = required_uuid(&params, "plan_id", "actions.reject")?;
+    let plan = state
+        .storage
+        .get_action_plan(id)?
+        .with_context(|| format!("action plan {id} was not found"))?;
+    let rejected = reject_plan(plan, Utc::now()).map_err(anyhow::Error::msg)?;
+    state
+        .storage
+        .replace_action_plan(ActionStatus::WaitingApproval, &rejected)?;
+    state.storage.append_event(
+        trace_id,
+        "action.plan.rejected",
+        &json!({"plan_id": rejected.id, "status": rejected.status}),
+    )?;
+    Ok(serde_json::to_value(rejected)?)
+}
+
+fn winget_resolution_evidence(
+    trace_id: Uuid,
+    payload: &Value,
+) -> anyhow::Result<EvidenceRecord> {
+    let package_id = payload
+        .pointer("/selector/package_id")
+        .and_then(Value::as_str)
+        .unwrap_or("selected-package");
+    let source = payload
+        .pointer("/selector/source")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown-source");
+    let status = payload
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("UNKNOWN");
+    Ok(EvidenceRecord::new(
+        trace_id,
+        EvidenceKind::AdapterInvocation,
+        format!("winget:{source}:{package_id}"),
+        format!("WinGet exact package resolution completed with status {status}"),
+        "toolos.adapter.winget",
+        payload.clone(),
+        vec![
+            "Provider output is retained without locale-dependent table parsing".to_owned(),
+            "Install and uninstall commands remain disabled previews".to_owned(),
+            "Package and source agreements were not accepted automatically".to_owned(),
+        ],
+    )?)
 }
 
 async fn adapter_health(path: &Path) -> &'static str {
@@ -332,6 +481,14 @@ fn required_path(params: &Value, method: &str) -> anyhow::Result<String> {
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
         .with_context(|| format!("{method} requires a non-empty string 'path' parameter"))
+}
+
+fn required_uuid(params: &Value, field: &str, method: &str) -> anyhow::Result<Uuid> {
+    let value = params
+        .get(field)
+        .and_then(Value::as_str)
+        .with_context(|| format!("{method} requires a string '{field}' parameter"))?;
+    Uuid::parse_str(value).with_context(|| format!("{field} is not a valid UUID"))
 }
 
 fn bounded_limit(params: &Value, default: usize) -> usize {
@@ -428,6 +585,53 @@ fn sibling_adapter_path(
         .join(file_name))
 }
 
+fn capabilities() -> Value {
+    json!([
+        {
+            "capability_id": "machine.inspect",
+            "provider_id": "toolos.adapter.system",
+            "blast_radius": "READ_ONLY",
+            "status": "IMPLEMENTED"
+        },
+        {
+            "capability_id": "project.inspect",
+            "provider_id": "toolos.adapter.system",
+            "blast_radius": "READ_ONLY",
+            "status": "IMPLEMENTED"
+        },
+        {
+            "capability_id": "archive.inspect",
+            "provider_id": "toolos.adapter.system",
+            "blast_radius": "READ_ONLY",
+            "status": "IMPLEMENTED"
+        },
+        {
+            "capability_id": "package.resolve.winget",
+            "provider_id": "toolos.adapter.winget",
+            "blast_radius": "READ_ONLY",
+            "status": "IMPLEMENTED"
+        },
+        {
+            "capability_id": "action.plan.winget",
+            "provider_id": "toolos.action-governance",
+            "blast_radius": "READ_ONLY",
+            "status": "IMPLEMENTED"
+        },
+        {
+            "capability_id": "action.approve.winget",
+            "provider_id": "toolos.action-governance",
+            "blast_radius": "READ_ONLY",
+            "status": "IMPLEMENTED_NO_EXECUTION"
+        },
+        {
+            "capability_id": "package.execute.install",
+            "provider_id": "toolos.adapter.winget",
+            "blast_radius": "USER_PROFILE_WRITE_OR_MACHINE_WRITE",
+            "status": "BLOCKED_MISSING_CANCELLATION_AND_ROLLBACK"
+        }
+    ])
+}
+
 fn initialize_tracing() {
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("toolos=info"));
@@ -455,6 +659,21 @@ mod tests {
         assert_eq!(
             required_path(&json!({"path": "fixture.zip"}), "archive.inspect").expect("path"),
             "fixture.zip"
+        );
+    }
+
+    #[test]
+    fn uuid_parameter_is_validated() {
+        assert!(required_uuid(&json!({"plan_id": "bad"}), "plan_id", "actions.get").is_err());
+        let id = Uuid::new_v4();
+        assert_eq!(
+            required_uuid(
+                &json!({"plan_id": id.to_string()}),
+                "plan_id",
+                "actions.get"
+            )
+            .expect("uuid"),
+            id
         );
     }
 
