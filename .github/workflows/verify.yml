@@ -20,7 +20,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - run: python .github/_fix_governed_plan_v2.py
+      - name: Apply exact fixes and capture diagnostics
+        id: fixer
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          python .github/_fix_governed_plan_v2.py 2>&1 | tee governed-plan-fix.log
+      - name: Upload fixer diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: governed-plan-fix-diagnostics
+          path: governed-plan-fix.log
+          if-no-files-found: error
+      - name: Enforce fixer success
+        if: steps.fixer.outcome == 'failure'
+        run: exit 1
       - run: cargo fmt --all
       - name: Remove temporary files
         run: |
@@ -28,6 +42,7 @@ jobs:
           rm -f .github/_fix_governed_plan_v2.py
           rm -f .github/workflows/fix-governed-plan.yml
           rm -f .github/workflows/capture-clippy.yml
+          rm -f governed-plan-fix.log
       - name: Commit verified source correction
         run: |
           git config user.name "github-actions[bot]"
