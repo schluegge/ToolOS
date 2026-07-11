@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::fs::{self, File};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
@@ -132,10 +134,7 @@ pub fn inspect_zip(path: impl AsRef<Path>) -> Result<ZipInspectionReport, String
         let entry = archive
             .by_index(index)
             .map_err(|error| format!("cannot inspect ZIP entry {index}: {error}"))?;
-        let decoded_name = entry.name().ok().map(|name| name.into_owned());
-        let name = decoded_name
-            .clone()
-            .unwrap_or_else(|| format!("<non-UTF8-name:{}-bytes>", entry.name_raw().len()));
+        let name = entry.name().to_owned();
         let enclosed_path = entry
             .enclosed_name()
             .map(|value| value.to_string_lossy().into_owned());
@@ -156,16 +155,6 @@ pub fn inspect_zip(path: impl AsRef<Path>) -> Result<ZipInspectionReport, String
 
         total_compressed_size = total_compressed_size.saturating_add(compressed_size);
         total_uncompressed_size = total_uncompressed_size.saturating_add(uncompressed_size);
-
-        if decoded_name.is_none() {
-            findings.push(entry_finding(
-                FindingSeverity::Blocker,
-                "ENTRY_NAME_NOT_UTF8",
-                index,
-                &name,
-                "Entry name is not valid UTF-8 and cannot be represented reliably.",
-            ));
-        }
 
         if enclosed_path.is_none() {
             findings.push(entry_finding(
@@ -326,9 +315,12 @@ pub fn inspect_zip(path: impl AsRef<Path>) -> Result<ZipInspectionReport, String
         privacy_mode: "SELECTED_ARCHIVE_METADATA".to_owned(),
         observed_at: Utc::now(),
         limitations: vec![
-            "The archive was not extracted and no entry contents were decompressed or executed.".to_owned(),
-            "CRC integrity, malware, secrets, licenses, and semantic file safety were not evaluated.".to_owned(),
-            "An ACCEPT_STRUCTURE decision only covers inspected ZIP structure and path metadata; it is not a trust verdict for archive contents.".to_owned(),
+            "The archive was not extracted and no entry contents were decompressed or executed."
+                .to_owned(),
+            "CRC integrity, malware, secrets, licenses, and semantic file safety were not evaluated."
+                .to_owned(),
+            "An ACCEPT_STRUCTURE decision only covers inspected ZIP structure and path metadata; it is not a trust verdict for archive contents."
+                .to_owned(),
         ],
     })
 }
