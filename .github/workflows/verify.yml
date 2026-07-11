@@ -20,11 +20,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - run: python .github/_fix_governed_plan.py
+      - run: python .github/_fix_governed_plan_v2.py
       - run: cargo fmt --all
       - name: Remove temporary files
         run: |
           rm -f .github/_fix_governed_plan.py
+          rm -f .github/_fix_governed_plan_v2.py
           rm -f .github/workflows/fix-governed-plan.yml
           rm -f .github/workflows/capture-clippy.yml
       - name: Commit verified source correction
