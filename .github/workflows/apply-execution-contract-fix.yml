@@ -1,0 +1,62 @@
+name: apply-execution-contract-fix
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - tools/apply-execution-contract-fix.py
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: build/winget-user-execution
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Apply contract fix and run gates
+        id: gate
+        shell: bash
+        run: |
+          set -o pipefail
+          rm -f CONTRACT_FIX_FAILURE.txt
+          {
+            python tools/apply-execution-contract-fix.py
+            cargo fmt --all
+            cargo clippy --workspace --all-targets -- -D warnings
+            cargo test --workspace
+            corepack enable
+            pnpm install --frozen-lockfile
+            pnpm --dir apps/toolos-ui check
+            pnpm --dir apps/toolos-ui build
+          } 2>&1 | tee /tmp/toolos-contract-fix.log
+      - name: Persist failure evidence
+        if: failure() && steps.gate.outcome == 'failure'
+        run: |
+          cp /tmp/toolos-contract-fix.log CONTRACT_FIX_FAILURE.txt
+          git config user.name "ToolOS Build Bot"
+          git config user.email "toolos-build-bot@users.noreply.github.com"
+          git add CONTRACT_FIX_FAILURE.txt
+          git commit -m "Record execution contract fix failure"
+          git push origin HEAD:build/winget-user-execution
+      - name: Commit verified contract fix
+        if: success()
+        run: |
+          git config user.name "ToolOS Build Bot"
+          git config user.email "toolos-build-bot@users.noreply.github.com"
+          git rm .github/workflows/apply-execution-contract-fix.yml
+          git rm tools/apply-execution-contract-fix.py
+          git rm --ignore-unmatch CONTRACT_FIX_FAILURE.txt
+          git add -A
+          git commit -m "Separate armed execution from disabled approvals"
+          git push origin HEAD:build/winget-user-execution
