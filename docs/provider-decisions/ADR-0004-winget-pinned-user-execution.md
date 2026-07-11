@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for the first executable ToolOS provider slice.
+Proposed and verified as a draft implementation. Production merge is blocked by Issues #8 and #9; complete verification is tracked in Issue #10.
 
 ## Decision
 
@@ -30,8 +30,9 @@ because the current stable CLI output used by this slice is locale-dependent.
 
 ## Failure and recovery boundary
 
-The one-time approval is consumed before process launch and the plan enters `EXECUTING`.
-A daemon crash therefore fails closed and cannot silently replay the install. The local
-WinGet lock is extended through the bounded execution window. On timeout, ToolOS does not
-claim that every installer child process terminated; the operator must inspect WinGet logs
-and running processes before creating a new plan.
+Approval moves a plan to `APPROVED_AWAITING_EXECUTION`; the legacy
+`APPROVED_EXECUTION_DISABLED` state is never executable. The one-time arm is consumed before
+process launch and the plan enters `EXECUTING`, preventing silent replay. Production use is
+still blocked until Windows process-tree containment is proven (Issue #8) and restart-time
+residual-state reconciliation exists (Issue #9). Locale-stable installed-state and application
+health verification remain separate work (Issue #10).

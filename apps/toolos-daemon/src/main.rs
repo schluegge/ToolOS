@@ -406,10 +406,11 @@ fn winget_install_approve(
     let receipt =
         build_approval_receipt(&plan, &confirmation, now, 300).map_err(anyhow::Error::msg)?;
     let mut approved_plan = plan.clone();
-    approved_plan.status = InstallPlanStatus::ApprovedExecutionDisabled;
+    approved_plan.status = InstallPlanStatus::ApprovedAwaitingExecution;
+    approved_plan.execution_enabled = true;
     approved_plan.approval_challenge = None;
     approved_plan.single_safest_next_action =
-        "Execution remains disabled until the separate receipt-bound execution phrase is confirmed. Only exact, pinned, user-scope plans can execute."
+        "The plan is armed for one separate receipt-bound execution phrase. Approval itself did not invoke WinGet."
             .to_owned();
     let updated_plan_json = serde_json::to_string(&approved_plan)?;
     let stored_receipt = StoredApprovalReceipt {
@@ -440,7 +441,7 @@ fn winget_install_approve(
         trace_id,
         EvidenceKind::AdapterInvocation,
         format!("winget-approval:{}", receipt.approval_id),
-        "Governed WinGet install plan approved while execution remained disabled",
+        "Governed WinGet install plan armed for one separate receipt-bound execution step",
         "toolos.daemon.governance",
         json!({"plan": approved_plan, "receipt": receipt, "lock": lock}),
         vec![
@@ -459,7 +460,7 @@ fn winget_install_approve(
             "approval_id": stored_receipt.id,
             "lock_key": lock.resource_key,
             "lock_expires_at": lock.expires_at,
-            "execution_enabled": false
+            "execution_enabled": true
         }),
     )?;
     Ok(json!({
@@ -530,6 +531,7 @@ async fn winget_install_execute(
     let execution_id = Uuid::new_v4();
     let started_at = Utc::now();
     plan.status = InstallPlanStatus::Executing;
+    plan.execution_enabled = false;
     plan.single_safest_next_action =
         "WinGet execution is in progress. Do not start another package-manager operation."
             .to_owned();
@@ -663,9 +665,13 @@ fn validate_execution_authorization(
     stored_hash: &str,
     now: DateTime<Utc>,
 ) -> anyhow::Result<()> {
-    if plan.status != InstallPlanStatus::ApprovedExecutionDisabled {
+    if plan.status != InstallPlanStatus::ApprovedAwaitingExecution
+        || receipt.status != InstallPlanStatus::ApprovedAwaitingExecution
+        || !plan.execution_enabled
+        || !receipt.execution_enabled
+    {
         return Err(anyhow!(
-            "install plan is not approved for a separate execution step"
+            "install plan and receipt are not armed for a separate execution step"
         ));
     }
     if now >= plan.expires_at || now >= receipt.expires_at {
@@ -815,7 +821,7 @@ fn capabilities() -> Value {
             "capability_id": "package.install.approve.winget",
             "provider_id": "toolos.daemon.governance",
             "blast_radius": "LOCAL_METADATA_WRITE",
-            "status": "IMPLEMENTED_EXECUTION_DISABLED"
+            "status": "IMPLEMENTED_ARMS_SEPARATE_EXECUTION"
         },
         {
             "capability_id": "package.install.execute.winget",
@@ -895,6 +901,7 @@ fn install_plan_status(status: &InstallPlanStatus) -> &'static str {
         InstallPlanStatus::AwaitingApproval => "AWAITING_APPROVAL",
         InstallPlanStatus::Blocked => "BLOCKED",
         InstallPlanStatus::ApprovedExecutionDisabled => "APPROVED_EXECUTION_DISABLED",
+        InstallPlanStatus::ApprovedAwaitingExecution => "APPROVED_AWAITING_EXECUTION",
         InstallPlanStatus::Executing => "EXECUTING",
         InstallPlanStatus::ExecutionSucceededUnverified => "EXECUTION_SUCCEEDED_UNVERIFIED",
         InstallPlanStatus::ExecutionFailed => "EXECUTION_FAILED",

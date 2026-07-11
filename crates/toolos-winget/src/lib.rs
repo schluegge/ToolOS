@@ -103,6 +103,7 @@ pub enum InstallPlanStatus {
     AwaitingApproval,
     Blocked,
     ApprovedExecutionDisabled,
+    ApprovedAwaitingExecution,
     Executing,
     ExecutionSucceededUnverified,
     ExecutionFailed,
@@ -209,7 +210,7 @@ pub fn build_install_plan(
         InstallPlanStatus::Blocked
     };
     let single_safest_next_action = if approval_allowed {
-        "Review the exact command, raw identity and installed-state evidence, then enter the approval phrase before the plan expires. Approval still cannot execute the installer."
+        "Review the exact command, raw identity and installed-state evidence, then enter the approval phrase before the plan expires. Approval arms only a separate receipt-bound execution step; it does not itself invoke the installer."
             .to_owned()
     } else {
         "Resolve every blocker and create a new plan; blocked plans cannot be approved.".to_owned()
@@ -257,7 +258,7 @@ pub fn build_install_plan(
                 .to_owned(),
             "The generated command contains no agreement acceptance, hash bypass, dependency skip, force, override, or custom installer arguments."
                 .to_owned(),
-            "Approval changes only ToolOS metadata and a local lock; machine execution remains disabled."
+            "Approval changes only ToolOS metadata and a local lock; a second receipt-bound execution phrase is required before machine mutation."
                 .to_owned(),
         ],
         single_safest_next_action,
@@ -297,8 +298,8 @@ pub fn build_approval_receipt(
         expires_at,
         lock_key: plan.lock_key.clone(),
         lock_expires_at: expires_at,
-        status: InstallPlanStatus::ApprovedExecutionDisabled,
-        execution_enabled: false,
+        status: InstallPlanStatus::ApprovedAwaitingExecution,
+        execution_enabled: true,
         execution_confirmation: execution_confirmation(
             &plan.selector.package_id,
             &plan.plan_hash,
@@ -643,7 +644,8 @@ mod tests {
             .clone();
         let receipt = build_approval_receipt(&plan, &phrase, now, 300).expect("receipt");
         assert_eq!(receipt.plan_hash, plan.plan_hash);
-        assert!(!receipt.execution_enabled);
+        assert_eq!(receipt.status, InstallPlanStatus::ApprovedAwaitingExecution);
+        assert!(receipt.execution_enabled);
         assert!(build_approval_receipt(&plan, "wrong", now, 300).is_err());
     }
 

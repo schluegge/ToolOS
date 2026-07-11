@@ -444,7 +444,7 @@ impl Storage {
         transaction.execute(
             "UPDATE action_plan SET status = ?1, record_json = ?2 WHERE id = ?3",
             params![
-                "APPROVED_EXECUTION_DISABLED",
+                "APPROVED_AWAITING_EXECUTION",
                 updated_plan_json,
                 plan_id.to_string()
             ],
@@ -532,7 +532,7 @@ impl Storage {
         if execution.now >= plan_expires_at {
             return Err(StorageError::PlanExpired(execution.plan_id.to_string()));
         }
-        if status != "APPROVED_EXECUTION_DISABLED" {
+        if status != "APPROVED_AWAITING_EXECUTION" {
             return Err(StorageError::PlanNotApprovable(status));
         }
         if plan_hash != execution.expected_hash {
@@ -779,7 +779,7 @@ mod tests {
             .get_action_plan(plan_id)
             .expect("get plan")
             .expect("plan");
-        assert_eq!(saved.status, "APPROVED_EXECUTION_DISABLED");
+        assert_eq!(saved.status, "APPROVED_AWAITING_EXECUTION");
         assert_eq!(
             storage
                 .get_resource_lock("package-manager:winget", now)

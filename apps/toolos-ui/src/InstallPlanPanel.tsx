@@ -223,6 +223,8 @@ export function InstallPlanPanel({ selector, disabled = false, onEvidence }: Pro
                     disabled ||
                     state === "loading" ||
                     !executionConfirmation.trim() ||
+                    !plan.execution_enabled ||
+                    !receipt.execution_enabled ||
                     plan.selector.scope !== "user" ||
                     !plan.selector.version ||
                     !plan.selector.architecture

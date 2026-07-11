@@ -10,7 +10,7 @@ This repository currently implements the platform skeleton, trusted read-only di
 - `toolos`: CLI for health, system scan, project inspection, ZIP inspection, WinGet exact resolution, evidence, and event replay.
 - `toolos-launcher`: starts the daemon when necessary and launches the desktop client.
 - `toolos-system-adapter`: out-of-process JSON-RPC adapter for selected machine, project, and archive metadata.
-- `toolos-winget-adapter`: out-of-process provider for exact WinGet package resolution and disabled command previews.
+- `toolos-winget-adapter`: out-of-process provider for exact WinGet resolution, disabled previews, and the draft pinned user-scope execution slice.
 - `toolos-ui`: Tauri 2 + React guided dashboard using the same daemon API.
 - Typed capability, evidence, adapter, action, approval, quota, lesson, policy, archive-report, and package-resolution schemas.
 - Correlated event and evidence persistence.
@@ -29,7 +29,7 @@ The ZIP inspector reads only selected archive metadata. It checks for unsafe or 
 
 The WinGet provider accepts one package ID and one source, plus optional version, scope, and architecture filters. It runs a non-interactive exact `winget show` query, captures bounded process evidence, and creates exact install and uninstall command previews.
 
-The preview commands are intentionally disabled. ToolOS does not accept package/source agreements, bypass hashes, skip dependencies, request elevation, install software, or uninstall software in this slice.
+Preview commands remain intentionally non-executable artifacts. The draft execution path can invoke only an exact version- and architecture-pinned user-scope install after fresh revalidation and two separate short-lived confirmations; it never auto-accepts agreements, bypasses hashes, skips dependencies, requests elevation, or enables uninstall. Production merge remains blocked by Issues #8 and #9.
 
 ## Development
 
