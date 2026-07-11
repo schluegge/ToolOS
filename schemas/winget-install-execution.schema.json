@@ -14,6 +14,7 @@
     "started_at",
     "completed_at",
     "process_evidence",
+    "containment",
     "preflight_resolution",
     "preflight_installed_state",
     "execution_attempted",
@@ -30,7 +31,9 @@
       "enum": [
         "PROVIDER_SUCCEEDED_POST_STATE_UNVERIFIED",
         "PROVIDER_FAILED",
-        "TIMED_OUT"
+        "TIMED_OUT",
+        "CANCELLED",
+        "UNKNOWN_REQUIRES_RECOVERY"
       ]
     },
     "selector": { "type": "object" },
@@ -38,6 +41,46 @@
     "started_at": { "type": "string", "format": "date-time" },
     "completed_at": { "type": "string", "format": "date-time" },
     "process_evidence": { "type": "object" },
+    "containment": {
+      "type": "object",
+      "required": [
+        "method",
+        "root_process_id",
+        "kill_on_job_close",
+        "assigned_at_creation",
+        "inherited_handle_list_restricted",
+        "termination_reason",
+        "termination_requested",
+        "termination_confirmed",
+        "active_processes_after",
+        "descendants_outlived_root",
+        "detail"
+      ],
+      "properties": {
+        "method": { "type": "string", "minLength": 1 },
+        "root_process_id": { "type": ["integer", "null"], "minimum": 0 },
+        "kill_on_job_close": { "type": "boolean" },
+        "assigned_at_creation": { "type": "boolean" },
+        "inherited_handle_list_restricted": { "type": "boolean" },
+        "termination_reason": {
+          "enum": [
+            "PROCESS_EXITED",
+            "TIMED_OUT",
+            "EXPLICIT_CANCELLATION",
+            "DAEMON_SHUTDOWN",
+            "DESCENDANTS_OUTLIVED_ROOT",
+            "CONTAINMENT_FAILURE",
+            "UNAVAILABLE"
+          ]
+        },
+        "termination_requested": { "type": "boolean" },
+        "termination_confirmed": { "type": "boolean" },
+        "active_processes_after": { "type": ["integer", "null"], "minimum": 0 },
+        "descendants_outlived_root": { "type": "boolean" },
+        "detail": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
     "preflight_resolution": { "type": "object" },
     "preflight_installed_state": { "type": "object" },
     "post_install_state": { "type": ["object", "null"] },
