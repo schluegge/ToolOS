@@ -1,0 +1,13 @@
+/target/
+**/target/
+/node_modules/
+**/node_modules/
+**/dist/
+*.db
+*.db-shm
+*.db-wal
+*.sock
+.env
+.DS_Store
+Thumbs.db
+/evidence/

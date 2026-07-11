@@ -1,0 +1,27 @@
+[tools]
+rust = "stable"
+node = "24"
+pnpm = "10.12.1"
+
+[tasks.format]
+description = "Format Rust and frontend sources"
+run = ["cargo fmt --all", "pnpm --dir apps/toolos-ui format"]
+
+[tasks.check]
+description = "Run static checks"
+run = [
+  "cargo fmt --all -- --check",
+  "cargo clippy --workspace --all-targets -- -D warnings",
+  "pnpm --dir apps/toolos-ui check"
+]
+
+[tasks.test]
+description = "Run unit and integration tests"
+run = ["cargo test --workspace", "pnpm --dir apps/toolos-ui build"]
+
+[tasks.verify]
+depends = ["check", "test"]
+
+[tasks.sbom]
+description = "Generate a CycloneDX SBOM after installing cargo-cyclonedx"
+run = "cargo cyclonedx --workspace --format json"

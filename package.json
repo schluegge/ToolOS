@@ -1,0 +1,10 @@
+{
+  "name": "toolos-workspace",
+  "private": true,
+  "packageManager": "pnpm@10.12.1",
+  "scripts": {
+    "ui:dev": "pnpm --dir apps/toolos-ui dev",
+    "ui:build": "pnpm --dir apps/toolos-ui build",
+    "ui:check": "pnpm --dir apps/toolos-ui check"
+  }
+}

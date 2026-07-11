@@ -1,0 +1,19 @@
+[package]
+name = "toolos-ui"
+version = "0.1.0"
+description = "ToolOS guided desktop client"
+edition = "2021"
+rust-version = "1.85"
+
+[lib]
+name = "toolos_ui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde_json = "1"
+tauri = { version = "2", features = [] }
+toolos-domain = { path = "../../../crates/toolos-domain" }
+toolos-ipc = { path = "../../../crates/toolos-ipc" }

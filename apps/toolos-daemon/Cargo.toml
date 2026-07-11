@@ -1,0 +1,21 @@
+[package]
+name = "toolos-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+toolos-domain = { path = "../../crates/toolos-domain" }
+toolos-ipc = { path = "../../crates/toolos-ipc" }
+toolos-storage = { path = "../../crates/toolos-storage" }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://toolos.local/schemas/action-plan.schema.json",
+  "title": "ToolOS action plan",
+  "type": "object",
+  "required": ["id", "goal", "capability", "environment", "blast_radius", "simulation_required", "approval_required", "verification", "rollback"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "goal": { "type": "string", "minLength": 1 },
+    "capability": { "type": "string", "minLength": 1 },
+    "environment": { "type": "string" },
+    "blast_radius": { "enum": ["READ_ONLY", "PROJECT_WRITE", "USER_PROFILE_WRITE", "MACHINE_WRITE", "NETWORK_WRITE", "DESTRUCTIVE", "ACCOUNT_OR_PAYMENT"] },
+    "simulation_required": { "type": "boolean" },
+    "approval_required": { "type": "boolean" },
+    "commands": { "type": "array" },
+    "verification": { "type": "array", "items": { "type": "string" } },
+    "rollback": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}
