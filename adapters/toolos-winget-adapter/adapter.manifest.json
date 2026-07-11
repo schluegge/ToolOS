@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "adapter_id": "toolos.adapter.winget",
+  "adapter_version": "0.1.0",
+  "entrypoint": {
+    "environment": "WINDOWS_NATIVE",
+    "command": "toolos-winget-adapter.exe",
+    "args": []
+  },
+  "protocol": "toolos-jsonrpc-1",
+  "permissions": {
+    "filesystem": [],
+    "network": ["CONFIGURED_WINGET_SOURCE_READ"],
+    "credentials": [],
+    "process_spawn": ["winget.exe --version", "winget.exe show"]
+  },
+  "capabilities": ["package.resolve.winget", "package.preview.install", "package.preview.uninstall"],
+  "healthcheck": {
+    "method": "adapter.health",
+    "timeout_seconds": 5
+  },
+  "provenance": {
+    "canonical_source": "https://github.com/microsoft/winget-cli",
+    "maintainer": "Microsoft / ToolOS adapter",
+    "license": "MIT for WinGet CLI; ToolOS adapter remains repository-licensed",
+    "verified_utc": "2026-07-11T00:00:00Z"
+  }
+}

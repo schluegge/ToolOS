@@ -1,0 +1,17 @@
+[package]
+name = "toolos-winget-adapter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+toolos-domain = { path = "../../crates/toolos-domain" }
+toolos-winget = { path = "../../crates/toolos-winget" }
+
+[lints]
+workspace = true

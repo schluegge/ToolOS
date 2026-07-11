@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{anyhow, Context};
 use chrono::{DateTime, Utc};
@@ -19,7 +20,8 @@ use uuid::Uuid;
 struct AppState {
     storage: Storage,
     started_at: DateTime<Utc>,
-    adapter_path: PathBuf,
+    system_adapter_path: PathBuf,
+    winget_adapter_path: PathBuf,
 }
 
 #[tokio::main]
@@ -27,13 +29,23 @@ async fn main() -> anyhow::Result<()> {
     initialize_tracing();
     let database_path = database_path()?;
     let storage = Storage::initialize(&database_path).context("initialize ToolOS database")?;
-    let adapter_path = adapter_path()?;
+    let system_adapter_path = sibling_adapter_path(
+        "TOOLOS_SYSTEM_ADAPTER",
+        "toolos-system-adapter.exe",
+        "toolos-system-adapter",
+    )?;
+    let winget_adapter_path = sibling_adapter_path(
+        "TOOLOS_WINGET_ADAPTER",
+        "toolos-winget-adapter.exe",
+        "toolos-winget-adapter",
+    )?;
     let started_at = Utc::now();
     storage.set_metadata("daemon.started_at", &started_at.to_rfc3339())?;
     let state = Arc::new(AppState {
         storage,
         started_at,
-        adapter_path,
+        system_adapter_path,
+        winget_adapter_path,
     });
 
     let startup_trace = Uuid::new_v4();
@@ -43,13 +55,15 @@ async fn main() -> anyhow::Result<()> {
         &json!({
             "version": env!("CARGO_PKG_VERSION"),
             "database_path": state.storage.path().to_string_lossy(),
-            "adapter_path": state.adapter_path.to_string_lossy()
+            "system_adapter_path": state.system_adapter_path.to_string_lossy(),
+            "winget_adapter_path": state.winget_adapter_path.to_string_lossy()
         }),
     )?;
 
     info!(
         database = %state.storage.path().display(),
-        adapter = %state.adapter_path.display(),
+        system_adapter = %state.system_adapter_path.display(),
+        winget_adapter = %state.winget_adapter_path.display(),
         "ToolOS daemon listening"
     );
 
@@ -100,11 +114,8 @@ async fn handle_request(state: Arc<AppState>, request: RpcRequest) -> RpcRespons
 async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> anyhow::Result<Value> {
     match request.method.as_str() {
         "daemon.ping" => {
-            let adapter_status =
-                match invoke_adapter(&state.adapter_path, "adapter.health", json!({})).await {
-                    Ok(_) => "HEALTHY",
-                    Err(_) => "UNREACHABLE",
-                };
+            let system_status = adapter_health(&state.system_adapter_path).await;
+            let winget_status = adapter_health(&state.winget_adapter_path).await;
             let report = HealthReport {
                 service: "toolos-daemon".to_owned(),
                 version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -112,12 +123,18 @@ async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> any
                 started_at: state.started_at,
                 checked_at: Utc::now(),
                 database_path: state.storage.path().to_string_lossy().into_owned(),
-                adapter_status: adapter_status.to_owned(),
+                adapter_status: format!("system={system_status}; winget={winget_status}"),
             };
             Ok(serde_json::to_value(report)?)
         }
         "machine.inspect" => {
-            let payload = invoke_adapter(&state.adapter_path, "machine.inspect", json!({})).await?;
+            let payload = invoke_adapter(
+                &state.system_adapter_path,
+                "machine.inspect",
+                json!({}),
+                Duration::from_secs(10),
+            )
+            .await?;
             let evidence = EvidenceRecord::new(
                 trace_id,
                 EvidenceKind::MachineInventory,
@@ -131,21 +148,17 @@ async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> any
                     "No detected executable was launched".to_owned(),
                 ],
             )?;
-            state.storage.record_evidence(&evidence)?;
-            state.storage.append_event(
-                trace_id,
-                "evidence.recorded",
-                &json!({"evidence_id": evidence.id, "kind": "MACHINE_INVENTORY"}),
-            )?;
+            record_evidence(state, trace_id, &evidence, "MACHINE_INVENTORY")?;
             Ok(json!({"snapshot": payload, "evidence": evidence}))
         }
         "project.inspect" => {
             let params: ProjectInspectParams = serde_json::from_value(request.params.clone())
                 .context("project.inspect requires {\"path\": \"...\"}")?;
             let payload = invoke_adapter(
-                &state.adapter_path,
+                &state.system_adapter_path,
                 "project.inspect",
                 json!({"path": params.path}),
+                Duration::from_secs(10),
             )
             .await?;
             let scope = payload
@@ -165,20 +178,16 @@ async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> any
                     "Repository scripts and package lifecycle hooks were not executed".to_owned(),
                 ],
             )?;
-            state.storage.record_evidence(&evidence)?;
-            state.storage.append_event(
-                trace_id,
-                "evidence.recorded",
-                &json!({"evidence_id": evidence.id, "kind": "PROJECT_IDENTITY"}),
-            )?;
+            record_evidence(state, trace_id, &evidence, "PROJECT_IDENTITY")?;
             Ok(json!({"snapshot": payload, "evidence": evidence}))
         }
         "archive.inspect" => {
             let path = required_path(&request.params, "archive.inspect")?;
             let payload = invoke_adapter(
-                &state.adapter_path,
+                &state.system_adapter_path,
                 "archive.inspect",
                 json!({"path": path}),
+                Duration::from_secs(10),
             )
             .await?;
             let scope = payload
@@ -199,12 +208,43 @@ async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> any
                         .to_owned(),
                 ],
             )?;
-            state.storage.record_evidence(&evidence)?;
-            state.storage.append_event(
+            record_evidence(state, trace_id, &evidence, "ARCHIVE_INSPECTION")?;
+            Ok(json!({"snapshot": payload, "evidence": evidence}))
+        }
+        "winget.resolve" => {
+            let payload = invoke_adapter(
+                &state.winget_adapter_path,
+                "winget.resolve",
+                request.params.clone(),
+                Duration::from_secs(55),
+            )
+            .await?;
+            let package_id = payload
+                .pointer("/selector/package_id")
+                .and_then(Value::as_str)
+                .unwrap_or("selected-package");
+            let source = payload
+                .pointer("/selector/source")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown-source");
+            let status = payload
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("UNKNOWN");
+            let evidence = EvidenceRecord::new(
                 trace_id,
-                "evidence.recorded",
-                &json!({"evidence_id": evidence.id, "kind": "ARCHIVE_INSPECTION"}),
+                EvidenceKind::AdapterInvocation,
+                format!("winget:{source}:{package_id}"),
+                format!("WinGet exact package resolution completed with status {status}"),
+                "toolos.adapter.winget",
+                payload.clone(),
+                vec![
+                    "Provider output is retained without locale-dependent table parsing".to_owned(),
+                    "Install and uninstall commands remain disabled previews".to_owned(),
+                    "Package and source agreements were not accepted automatically".to_owned(),
+                ],
             )?;
+            record_evidence(state, trace_id, &evidence, "WINGET_PACKAGE_RESOLUTION")?;
             Ok(json!({"snapshot": payload, "evidence": evidence}))
         }
         "evidence.list" => {
@@ -233,10 +273,55 @@ async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> any
                 "provider_id": "toolos.adapter.system",
                 "blast_radius": "READ_ONLY",
                 "status": "IMPLEMENTED"
+            },
+            {
+                "capability_id": "package.resolve.winget",
+                "provider_id": "toolos.adapter.winget",
+                "blast_radius": "READ_ONLY",
+                "status": "IMPLEMENTED"
+            },
+            {
+                "capability_id": "package.preview.install",
+                "provider_id": "toolos.adapter.winget",
+                "blast_radius": "USER_PROFILE_WRITE_OR_MACHINE_WRITE",
+                "status": "PREVIEW_ONLY"
+            },
+            {
+                "capability_id": "package.preview.uninstall",
+                "provider_id": "toolos.adapter.winget",
+                "blast_radius": "USER_PROFILE_WRITE_OR_MACHINE_WRITE",
+                "status": "PREVIEW_ONLY"
             }
         ])),
         _ => Err(anyhow!("unknown daemon method: {}", request.method)),
     }
+}
+
+async fn adapter_health(path: &Path) -> &'static str {
+    match invoke_adapter(path, "adapter.health", json!({}), Duration::from_secs(7)).await {
+        Ok(payload) => match payload.get("status").and_then(Value::as_str) {
+            Some("HEALTHY") => "HEALTHY",
+            Some("DEGRADED") => "DEGRADED",
+            Some("UNAVAILABLE") => "UNAVAILABLE",
+            _ => "REACHABLE",
+        },
+        Err(_) => "UNREACHABLE",
+    }
+}
+
+fn record_evidence(
+    state: &AppState,
+    trace_id: Uuid,
+    evidence: &EvidenceRecord,
+    kind: &str,
+) -> anyhow::Result<()> {
+    state.storage.record_evidence(evidence)?;
+    state.storage.append_event(
+        trace_id,
+        "evidence.recorded",
+        &json!({"evidence_id": evidence.id, "kind": kind}),
+    )?;
+    Ok(())
 }
 
 fn required_path(params: &Value, method: &str) -> anyhow::Result<String> {
@@ -258,14 +343,19 @@ fn bounded_limit(params: &Value, default: usize) -> usize {
         .clamp(1, 500)
 }
 
-async fn invoke_adapter(path: &Path, method: &str, params: Value) -> anyhow::Result<Value> {
+async fn invoke_adapter(
+    path: &Path,
+    method: &str,
+    params: Value,
+    timeout: Duration,
+) -> anyhow::Result<Value> {
     let mut child = Command::new(path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .with_context(|| format!("start system adapter at {}", path.display()))?;
+        .with_context(|| format!("start adapter at {}", path.display()))?;
 
     let mut stdin = child.stdin.take().context("adapter stdin unavailable")?;
     let stdout = child.stdout.take().context("adapter stdout unavailable")?;
@@ -277,23 +367,20 @@ async fn invoke_adapter(path: &Path, method: &str, params: Value) -> anyhow::Res
 
     let mut reader = BufReader::new(stdout);
     let mut line = String::new();
-    let read = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        reader.read_line(&mut line),
-    )
-    .await
-    .context("system adapter timed out")??;
+    let read = tokio::time::timeout(timeout, reader.read_line(&mut line))
+        .await
+        .with_context(|| format!("adapter method {method} timed out"))??;
     if read == 0 {
         let output = child.wait_with_output().await?;
         return Err(anyhow!(
-            "system adapter returned no response: {}",
+            "adapter returned no response: {}",
             String::from_utf8_lossy(&output.stderr)
         ));
     }
     let response: RpcResponse = serde_json::from_str(line.trim_end())?;
     let status = child.wait().await?;
     if !status.success() {
-        return Err(anyhow!("system adapter exited with status {status}"));
+        return Err(anyhow!("adapter exited with status {status}"));
     }
     if let Some(error) = response.error {
         return Err(anyhow!("adapter error {}: {}", error.code, error.message));
@@ -321,15 +408,19 @@ fn database_path() -> anyhow::Result<PathBuf> {
     }
 }
 
-fn adapter_path() -> anyhow::Result<PathBuf> {
-    if let Some(path) = std::env::var_os("TOOLOS_SYSTEM_ADAPTER") {
+fn sibling_adapter_path(
+    environment_variable: &str,
+    windows_name: &str,
+    unix_name: &str,
+) -> anyhow::Result<PathBuf> {
+    if let Some(path) = std::env::var_os(environment_variable) {
         return Ok(PathBuf::from(path));
     }
     let executable = std::env::current_exe().context("resolve daemon executable path")?;
     let file_name = if cfg!(windows) {
-        "toolos-system-adapter.exe"
+        windows_name
     } else {
-        "toolos-system-adapter"
+        unix_name
     };
     Ok(executable
         .parent()

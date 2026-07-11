@@ -81,6 +81,52 @@ export type ZipInspectionReport = {
   limitations: string[];
 };
 
+export type PackageScope = "user" | "machine";
+
+export type WingetPackageSelector = {
+  package_id: string;
+  source: string;
+  version: string | null;
+  scope: PackageScope | null;
+  architecture: string | null;
+};
+
+export type CommandPreview = {
+  executable: string;
+  args: string[];
+  powershell: string;
+  working_directory: string | null;
+  environment_changes: string[];
+  blast_radius: string;
+  execution_enabled: boolean;
+  expected_side_effects: string[];
+  approval_requirements: string[];
+};
+
+export type ProcessEvidence = {
+  executable: string;
+  args: string[];
+  exit_code: number | null;
+  stdout: string;
+  stderr: string;
+  timed_out: boolean;
+  duration_ms: number;
+};
+
+export type WingetResolutionReport = {
+  provider_id: string;
+  provider_version: string | null;
+  status: "RESOLVED_EXACT" | "BLOCKED" | "UNAVAILABLE";
+  selector: WingetPackageSelector;
+  identity_probe: CommandPreview;
+  identity_evidence: ProcessEvidence | null;
+  install_preview: CommandPreview;
+  uninstall_preview: CommandPreview;
+  observed_at: string;
+  limitations: string[];
+  single_safest_next_action: string;
+};
+
 export type EvidenceRecord = {
   id: string;
   trace_id: string;
@@ -116,6 +162,11 @@ export const api = {
     daemonRequest<ObservationResult<ZipInspectionReport>>("archive.inspect", {
       path,
     }),
+  resolveWinget: (selector: WingetPackageSelector) =>
+    daemonRequest<ObservationResult<WingetResolutionReport>>(
+      "winget.resolve",
+      selector,
+    ),
   listEvidence: (limit = 20) =>
     daemonRequest<EvidenceRecord[]>("evidence.list", { limit }),
 };

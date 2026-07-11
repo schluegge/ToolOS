@@ -44,21 +44,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/toolos-ui/src-tauri
-      - name: Check Tauri Windows crate
-        id: tauri_check
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          cargo check --manifest-path apps/toolos-ui/src-tauri/Cargo.toml *>&1 | Tee-Object -FilePath tauri-check.log
-          exit $LASTEXITCODE
-      - name: Upload Tauri compiler diagnostics
-        if: steps.tauri_check.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: tauri-check-log
-          path: tauri-check.log
-          if-no-files-found: error
-      - name: Enforce successful Tauri compile
-        if: steps.tauri_check.outcome == 'failure'
-        shell: pwsh
-        run: exit 1
+      - run: cargo check --manifest-path apps/toolos-ui/src-tauri/Cargo.toml

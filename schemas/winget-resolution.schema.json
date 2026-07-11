@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://toolos.dev/schemas/winget-resolution.schema.json",
+  "title": "ToolOS exact WinGet package resolution report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "provider_id",
+    "provider_version",
+    "status",
+    "selector",
+    "identity_probe",
+    "identity_evidence",
+    "install_preview",
+    "uninstall_preview",
+    "observed_at",
+    "limitations",
+    "single_safest_next_action"
+  ],
+  "properties": {
+    "provider_id": { "const": "winget" },
+    "provider_version": { "type": ["string", "null"] },
+    "status": {
+      "type": "string",
+      "enum": ["RESOLVED_EXACT", "BLOCKED", "UNAVAILABLE"]
+    },
+    "selector": { "$ref": "#/$defs/selector" },
+    "identity_probe": { "$ref": "#/$defs/command" },
+    "identity_evidence": {
+      "oneOf": [
+        { "$ref": "#/$defs/processEvidence" },
+        { "type": "null" }
+      ]
+    },
+    "install_preview": { "$ref": "#/$defs/command" },
+    "uninstall_preview": { "$ref": "#/$defs/command" },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "single_safest_next_action": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package_id", "source", "version", "scope", "architecture"],
+      "properties": {
+        "package_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "source": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "version": { "type": ["string", "null"], "maxLength": 512 },
+        "scope": { "type": ["string", "null"], "enum": ["user", "machine", null] },
+        "architecture": { "type": ["string", "null"], "maxLength": 512 }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executable",
+        "args",
+        "powershell",
+        "working_directory",
+        "environment_changes",
+        "blast_radius",
+        "execution_enabled",
+        "expected_side_effects",
+        "approval_requirements"
+      ],
+      "properties": {
+        "executable": { "const": "winget" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "powershell": { "type": "string" },
+        "working_directory": { "type": ["string", "null"] },
+        "environment_changes": { "type": "array", "items": { "type": "string" } },
+        "blast_radius": { "type": "string" },
+        "execution_enabled": { "const": false },
+        "expected_side_effects": { "type": "array", "items": { "type": "string" } },
+        "approval_requirements": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "processEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executable",
+        "args",
+        "exit_code",
+        "stdout",
+        "stderr",
+        "timed_out",
+        "duration_ms"
+      ],
+      "properties": {
+        "executable": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "exit_code": { "type": ["integer", "null"] },
+        "stdout": { "type": "string", "maxLength": 66000 },
+        "stderr": { "type": "string", "maxLength": 66000 },
+        "timed_out": { "type": "boolean" },
+        "duration_ms": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
