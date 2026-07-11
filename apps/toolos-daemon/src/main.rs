@@ -242,11 +242,7 @@ async fn archive_inspect(
     Ok(json!({"snapshot": payload, "evidence": evidence}))
 }
 
-async fn winget_resolve(
-    state: &AppState,
-    trace_id: Uuid,
-    params: &Value,
-) -> anyhow::Result<Value> {
+async fn winget_resolve(state: &AppState, trace_id: Uuid, params: &Value) -> anyhow::Result<Value> {
     let payload = invoke_adapter(
         &state.winget_adapter_path,
         "winget.resolve",
@@ -537,7 +533,10 @@ mod tests {
 
     #[test]
     fn capabilities_include_installed_state_query() {
-        let values = capabilities().as_array().expect("capabilities array").clone();
+        let values = capabilities()
+            .as_array()
+            .expect("capabilities array")
+            .clone();
         assert!(values.iter().any(|value| {
             value.get("capability_id").and_then(Value::as_str)
                 == Some("package.installed.query.winget")

@@ -148,8 +148,10 @@ pub fn installed_probe(selector: &PackageSelector) -> CommandPreview {
         args,
         "READ_ONLY",
         vec![
-            "Queries WinGet registration data for an installed package matching the exact ID.".to_owned(),
-            "May refresh or contact the configured package source while resolving source metadata.".to_owned(),
+            "Queries WinGet registration data for an installed package matching the exact ID."
+                .to_owned(),
+            "May refresh or contact the configured package source while resolving source metadata."
+                .to_owned(),
         ],
         Vec::new(),
     )
