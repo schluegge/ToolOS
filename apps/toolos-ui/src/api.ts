@@ -43,6 +43,44 @@ export type ProjectSnapshot = {
   observed_at: string;
 };
 
+export type ArchiveFinding = {
+  severity: "REVIEW" | "BLOCKER";
+  code: string;
+  entry_index: number | null;
+  entry_name: string | null;
+  message: string;
+};
+
+export type ZipEntryObservation = {
+  index: number;
+  name: string;
+  enclosed_path: string | null;
+  entry_kind: string;
+  compression: string;
+  compressed_size: number;
+  uncompressed_size: number;
+  expansion_ratio: number | null;
+  encrypted: boolean;
+  unix_mode: number | null;
+  crc32: number;
+};
+
+export type ZipInspectionReport = {
+  requested_path: string;
+  canonical_path: string;
+  archive_file_size: number;
+  archive_entries: number;
+  reported_entries: number;
+  total_compressed_size: number;
+  total_uncompressed_size: number;
+  decision: "ACCEPT_STRUCTURE" | "REVIEW" | "BLOCK";
+  findings: ArchiveFinding[];
+  entries: ZipEntryObservation[];
+  privacy_mode: string;
+  observed_at: string;
+  limitations: string[];
+};
+
 export type EvidenceRecord = {
   id: string;
   trace_id: string;
@@ -74,6 +112,10 @@ export const api = {
     daemonRequest<ObservationResult<MachineSnapshot>>("machine.inspect"),
   inspectProject: (path: string) =>
     daemonRequest<ObservationResult<ProjectSnapshot>>("project.inspect", { path }),
+  inspectArchive: (path: string) =>
+    daemonRequest<ObservationResult<ZipInspectionReport>>("archive.inspect", {
+      path,
+    }),
   listEvidence: (limit = 20) =>
     daemonRequest<EvidenceRecord[]>("evidence.list", { limit }),
 };
