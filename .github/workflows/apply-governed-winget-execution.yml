@@ -62,7 +62,7 @@ jobs:
           git rm tools/apply-governed-winget-execution.py.gz.b64
           git rm -r tools/patch-parts
           git rm tools/patch-ready.sha256
-          git rm -f PATCH_FAILURE.txt
+          git rm --ignore-unmatch PATCH_FAILURE.txt
           git add -A
           git commit -m "Execute governed pinned user-scope WinGet plans"
           git push origin HEAD:build/winget-user-execution
