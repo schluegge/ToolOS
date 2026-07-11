@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use rusqlite_migration::{Migrations, M};
 use thiserror::Error;
+use toolos_actions::{ActionStatus, WingetActionPlan};
 use toolos_domain::{EventRecord, EvidenceRecord};
 use uuid::Uuid;
 
@@ -40,6 +41,20 @@ const MIGRATION_SLICE: &[M<'_>] = &[
             updated_at TEXT NOT NULL
         );",
     ),
+    M::up(
+        "CREATE TABLE action_plan (
+            id TEXT PRIMARY KEY,
+            trace_id TEXT NOT NULL,
+            action_kind TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            plan_json TEXT NOT NULL
+        );
+        CREATE INDEX action_plan_updated_idx ON action_plan(updated_at DESC);
+        CREATE INDEX action_plan_status_idx ON action_plan(status, expires_at);",
+    ),
 ];
 const MIGRATIONS: Migrations<'_> = Migrations::from_slice(MIGRATION_SLICE);
 
@@ -57,6 +72,8 @@ pub enum StorageError {
     Uuid(#[from] uuid::Error),
     #[error("invalid timestamp in database: {0}")]
     Timestamp(#[from] chrono::ParseError),
+    #[error("action plan state conflict: expected {expected}, actual state changed or plan missing")]
+    ActionPlanConflict { expected: String },
 }
 
 #[derive(Debug, Clone)]
@@ -115,6 +132,83 @@ impl Storage {
             records.push(serde_json::from_str(&row?)?);
         }
         Ok(records)
+    }
+
+    pub fn create_action_plan(&self, plan: &WingetActionPlan) -> Result<(), StorageError> {
+        let connection = self.open_connection()?;
+        connection.execute(
+            "INSERT INTO action_plan (
+                id, trace_id, action_kind, status, created_at, expires_at, updated_at, plan_json
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                plan.id.to_string(),
+                plan.trace_id.to_string(),
+                format!("{:?}", plan.kind),
+                plan.status.storage_value(),
+                plan.created_at.to_rfc3339(),
+                plan.expires_at.to_rfc3339(),
+                Utc::now().to_rfc3339(),
+                serde_json::to_string(plan)?,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_action_plan(&self, id: Uuid) -> Result<Option<WingetActionPlan>, StorageError> {
+        let connection = self.open_connection()?;
+        let json = connection
+            .query_row(
+                "SELECT plan_json FROM action_plan WHERE id = ?1",
+                [id.to_string()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        json.map(|value| serde_json::from_str(&value))
+            .transpose()
+            .map_err(StorageError::from)
+    }
+
+    pub fn list_action_plans(&self, limit: usize) -> Result<Vec<WingetActionPlan>, StorageError> {
+        let connection = self.open_connection()?;
+        let mut statement = connection
+            .prepare("SELECT plan_json FROM action_plan ORDER BY updated_at DESC LIMIT ?1")?;
+        let rows = statement.query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
+            row.get::<_, String>(0)
+        })?;
+        let mut plans = Vec::new();
+        for row in rows {
+            plans.push(serde_json::from_str(&row?)?);
+        }
+        Ok(plans)
+    }
+
+    pub fn replace_action_plan(
+        &self,
+        expected_status: ActionStatus,
+        plan: &WingetActionPlan,
+    ) -> Result<(), StorageError> {
+        let mut connection = self.open_connection()?;
+        let transaction = connection.transaction()?;
+        let changed = transaction.execute(
+            "UPDATE action_plan
+             SET status = ?1, updated_at = ?2, expires_at = ?3, plan_json = ?4
+             WHERE id = ?5 AND status = ?6",
+            params![
+                plan.status.storage_value(),
+                Utc::now().to_rfc3339(),
+                plan.expires_at.to_rfc3339(),
+                serde_json::to_string(plan)?,
+                plan.id.to_string(),
+                expected_status.storage_value(),
+            ],
+        )?;
+        if changed != 1 {
+            return Err(StorageError::ActionPlanConflict {
+                expected: expected_status.storage_value().to_owned(),
+            });
+        }
+        transaction.commit()?;
+        Ok(())
     }
 
     pub fn append_event(
@@ -208,7 +302,45 @@ mod tests {
     use super::*;
     use serde_json::json;
     use tempfile::tempdir;
+    use toolos_actions::{
+        approve_plan, create_install_plan, ApprovalAcknowledgements, ApprovalRequest,
+    };
     use toolos_domain::EvidenceKind;
+    use toolos_winget::{
+        identity_probe, install_preview, uninstall_preview, PackageScope, PackageSelector,
+        ProcessEvidence, ResolutionStatus, WingetResolutionReport,
+    };
+
+    fn resolution() -> WingetResolutionReport {
+        let selector = PackageSelector {
+            package_id: "Git.Git".to_owned(),
+            source: "winget".to_owned(),
+            version: None,
+            scope: Some(PackageScope::User),
+            architecture: Some("x64".to_owned()),
+        };
+        WingetResolutionReport {
+            provider_id: "winget".to_owned(),
+            provider_version: Some("v1".to_owned()),
+            status: ResolutionStatus::ResolvedExact,
+            selector: selector.clone(),
+            identity_probe: identity_probe(&selector),
+            identity_evidence: Some(ProcessEvidence {
+                executable: "winget".to_owned(),
+                args: vec!["show".to_owned()],
+                exit_code: Some(0),
+                stdout: "resolved".to_owned(),
+                stderr: String::new(),
+                timed_out: false,
+                duration_ms: 1,
+            }),
+            install_preview: install_preview(&selector),
+            uninstall_preview: uninstall_preview(&selector),
+            observed_at: Utc::now(),
+            limitations: Vec::new(),
+            single_safest_next_action: "review".to_owned(),
+        }
+    }
 
     #[test]
     fn migrations_are_valid() {
@@ -216,7 +348,7 @@ mod tests {
     }
 
     #[test]
-    fn evidence_and_events_round_trip() {
+    fn evidence_events_and_action_plans_round_trip() {
         let directory = tempdir().expect("temp directory");
         let storage = Storage::initialize(directory.path().join("toolos.db")).expect("storage");
         let trace_id = Uuid::new_v4();
@@ -235,10 +367,47 @@ mod tests {
             .append_event(trace_id, "test.event", &json!({"evidence_id": evidence.id}))
             .expect("append event");
 
+        let plan = create_install_plan(trace_id, resolution(), Utc::now()).expect("plan");
+        storage.create_action_plan(&plan).expect("create plan");
+        assert_eq!(
+            storage.get_action_plan(plan.id).expect("get plan"),
+            Some(plan.clone())
+        );
+
+        let approved = approve_plan(
+            plan.clone(),
+            &ApprovalRequest {
+                plan_id: plan.id,
+                confirmation_phrase: plan.confirmation_phrase.clone(),
+                acknowledgements: ApprovalAcknowledgements {
+                    reviewed_exact_identity: true,
+                    accepts_declared_write_scope: true,
+                    understands_no_automatic_rollback: true,
+                },
+            },
+            Utc::now(),
+        )
+        .expect("approve");
+        storage
+            .replace_action_plan(ActionStatus::WaitingApproval, &approved)
+            .expect("replace plan");
+        assert_eq!(
+            storage
+                .get_action_plan(plan.id)
+                .expect("get approved plan")
+                .expect("stored plan")
+                .status,
+            ActionStatus::ApprovedAwaitingExecutor
+        );
+        assert!(storage
+            .replace_action_plan(ActionStatus::WaitingApproval, &approved)
+            .is_err());
+
         let records = storage.list_evidence(10).expect("list evidence");
         assert_eq!(records, vec![evidence]);
         let events = storage.replay_events(10).expect("replay events");
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, "test.event");
+        assert_eq!(storage.list_action_plans(10).expect("list plans").len(), 1);
     }
 }
