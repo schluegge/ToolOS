@@ -3,6 +3,9 @@
 /node_modules/
 **/node_modules/
 **/dist/
+*.tsbuildinfo
+/apps/toolos-ui/vite.config.js
+/apps/toolos-ui/vite.config.d.ts
 *.db
 *.db-shm
 *.db-wal
