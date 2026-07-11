@@ -127,6 +127,42 @@ export type WingetResolutionReport = {
   single_safest_next_action: string;
 };
 
+export type ApprovalAcknowledgements = {
+  reviewed_exact_identity: boolean;
+  accepts_declared_write_scope: boolean;
+  understands_no_automatic_rollback: boolean;
+};
+
+export type RollbackManifest = {
+  reversibility: string;
+  uninstall_preview: CommandPreview;
+  covered_surfaces: string[];
+  uncovered_surfaces: string[];
+  single_safest_recovery_action: string;
+};
+
+export type WingetActionPlan = {
+  id: string;
+  trace_id: string;
+  kind: "WINGET_INSTALL" | "WINGET_UNINSTALL";
+  status:
+    | "WAITING_APPROVAL"
+    | "APPROVED_AWAITING_EXECUTOR"
+    | "REJECTED"
+    | "EXPIRED";
+  package_resolution: WingetResolutionReport;
+  command: CommandPreview;
+  command_sha256: string;
+  confirmation_phrase: string;
+  created_at: string;
+  expires_at: string;
+  approved_at: string | null;
+  acknowledgements: ApprovalAcknowledgements | null;
+  execution_available: boolean;
+  blocked_execution_gates: string[];
+  rollback: RollbackManifest;
+};
+
 export type EvidenceRecord = {
   id: string;
   trace_id: string;
@@ -143,6 +179,18 @@ export type EvidenceRecord = {
 type ObservationResult<T> = {
   snapshot: T;
   evidence: EvidenceRecord;
+};
+
+type PlanResult = {
+  plan: WingetActionPlan;
+  resolution_evidence: EvidenceRecord;
+  plan_evidence: EvidenceRecord;
+};
+
+type ApprovalResult = {
+  plan: WingetActionPlan;
+  outcome: "APPROVED_NOT_EXECUTED";
+  single_safest_next_action: string;
 };
 
 async function daemonRequest<T>(
@@ -167,6 +215,24 @@ export const api = {
       "winget.resolve",
       selector,
     ),
+  planWingetInstall: (selector: WingetPackageSelector) =>
+    daemonRequest<PlanResult>("winget.plan.install", selector),
+  planWingetUninstall: (selector: WingetPackageSelector) =>
+    daemonRequest<PlanResult>("winget.plan.uninstall", selector),
+  approveAction: (
+    planId: string,
+    confirmationPhrase: string,
+    acknowledgements: ApprovalAcknowledgements,
+  ) =>
+    daemonRequest<ApprovalResult>("actions.approve", {
+      plan_id: planId,
+      confirmation_phrase: confirmationPhrase,
+      acknowledgements,
+    }),
+  rejectAction: (planId: string) =>
+    daemonRequest<WingetActionPlan>("actions.reject", { plan_id: planId }),
+  listActions: (limit = 20) =>
+    daemonRequest<WingetActionPlan[]>("actions.list", { limit }),
   listEvidence: (limit = 20) =>
     daemonRequest<EvidenceRecord[]>("evidence.list", { limit }),
 };
