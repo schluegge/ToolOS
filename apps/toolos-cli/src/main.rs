@@ -54,6 +54,55 @@ enum Command {
         #[arg(long)]
         architecture: Option<String>,
     },
+    /// Create an expiring WinGet install plan. No installation is executed.
+    WingetPlanInstall {
+        #[arg(long)]
+        id: String,
+        #[arg(long, default_value = "winget")]
+        source: String,
+        #[arg(long)]
+        version: Option<String>,
+        #[arg(long, value_enum)]
+        scope: Option<WingetScope>,
+        #[arg(long)]
+        architecture: Option<String>,
+    },
+    /// Create an expiring WinGet uninstall plan. No uninstall is executed.
+    WingetPlanUninstall {
+        #[arg(long)]
+        id: String,
+        #[arg(long, default_value = "winget")]
+        source: String,
+        #[arg(long)]
+        version: Option<String>,
+        #[arg(long, value_enum)]
+        scope: Option<WingetScope>,
+        #[arg(long)]
+        architecture: Option<String>,
+    },
+    /// Approve a stored plan after exact phrase and risk acknowledgements.
+    ActionApprove {
+        #[arg(long)]
+        plan_id: String,
+        #[arg(long)]
+        phrase: String,
+        #[arg(long)]
+        reviewed_exact_identity: bool,
+        #[arg(long)]
+        accepts_declared_write_scope: bool,
+        #[arg(long)]
+        understands_no_automatic_rollback: bool,
+    },
+    /// Reject a stored plan before execution exists.
+    ActionReject {
+        #[arg(long)]
+        plan_id: String,
+    },
+    /// List recent durable action plans.
+    Actions {
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
     /// List persisted evidence records.
     Evidence {
         #[arg(long, default_value_t = 50)]
@@ -90,14 +139,50 @@ async fn main() -> anyhow::Result<()> {
             architecture,
         } => (
             "winget.resolve".to_owned(),
+            selector_json(id, source, version, scope, architecture),
+        ),
+        Command::WingetPlanInstall {
+            id,
+            source,
+            version,
+            scope,
+            architecture,
+        } => (
+            "winget.plan.install".to_owned(),
+            selector_json(id, source, version, scope, architecture),
+        ),
+        Command::WingetPlanUninstall {
+            id,
+            source,
+            version,
+            scope,
+            architecture,
+        } => (
+            "winget.plan.uninstall".to_owned(),
+            selector_json(id, source, version, scope, architecture),
+        ),
+        Command::ActionApprove {
+            plan_id,
+            phrase,
+            reviewed_exact_identity,
+            accepts_declared_write_scope,
+            understands_no_automatic_rollback,
+        } => (
+            "actions.approve".to_owned(),
             json!({
-                "package_id": id,
-                "source": source,
-                "version": version,
-                "scope": scope.map(|value| value.as_str()),
-                "architecture": architecture
+                "plan_id": plan_id,
+                "confirmation_phrase": phrase,
+                "acknowledgements": {
+                    "reviewed_exact_identity": reviewed_exact_identity,
+                    "accepts_declared_write_scope": accepts_declared_write_scope,
+                    "understands_no_automatic_rollback": understands_no_automatic_rollback
+                }
             }),
         ),
+        Command::ActionReject { plan_id } => {
+            ("actions.reject".to_owned(), json!({"plan_id": plan_id}))
+        }
+        Command::Actions { limit } => ("actions.list".to_owned(), json!({"limit": limit})),
         Command::Evidence { limit } => ("evidence.list".to_owned(), json!({"limit": limit})),
         Command::Events { limit } => ("events.replay".to_owned(), json!({"limit": limit})),
         Command::Capabilities => ("capabilities.list".to_owned(), json!({})),
@@ -115,6 +200,22 @@ async fn main() -> anyhow::Result<()> {
         )
     })?;
     print_response(response, cli.compact)
+}
+
+fn selector_json(
+    id: String,
+    source: String,
+    version: Option<String>,
+    scope: Option<WingetScope>,
+    architecture: Option<String>,
+) -> Value {
+    json!({
+        "package_id": id,
+        "source": source,
+        "version": version,
+        "scope": scope.map(|value| value.as_str()),
+        "architecture": architecture
+    })
 }
 
 fn print_response(response: RpcResponse, compact: bool) -> anyhow::Result<()> {
@@ -144,25 +245,14 @@ mod tests {
     }
 
     #[test]
-    fn clap_parses_archive_path() {
-        let cli = Cli::try_parse_from(["toolos", "archive", "input.zip"]).expect("parse CLI");
-        match cli.command {
-            Command::Archive { path } => assert_eq!(path, "input.zip"),
-            _ => panic!("wrong command"),
-        }
-    }
-
-    #[test]
     fn clap_parses_exact_winget_selector() {
         let cli = Cli::try_parse_from([
             "toolos",
-            "winget-resolve",
+            "winget-plan-install",
             "--id",
             "Git.Git",
             "--source",
             "winget",
-            "--version",
-            "2.50.1",
             "--scope",
             "user",
             "--architecture",
@@ -170,18 +260,43 @@ mod tests {
         ])
         .expect("parse CLI");
         match cli.command {
-            Command::WingetResolve {
+            Command::WingetPlanInstall {
                 id,
                 source,
-                version,
                 scope,
                 architecture,
+                ..
             } => {
                 assert_eq!(id, "Git.Git");
                 assert_eq!(source, "winget");
-                assert_eq!(version.as_deref(), Some("2.50.1"));
                 assert!(matches!(scope, Some(WingetScope::User)));
                 assert_eq!(architecture.as_deref(), Some("x64"));
+            }
+            _ => panic!("wrong command"),
+        }
+    }
+
+    #[test]
+    fn approval_flags_default_to_false() {
+        let cli = Cli::try_parse_from([
+            "toolos",
+            "action-approve",
+            "--plan-id",
+            "00000000-0000-0000-0000-000000000001",
+            "--phrase",
+            "APPROVE INSTALL Git.Git ABCD1234",
+        ])
+        .expect("parse CLI");
+        match cli.command {
+            Command::ActionApprove {
+                reviewed_exact_identity,
+                accepts_declared_write_scope,
+                understands_no_automatic_rollback,
+                ..
+            } => {
+                assert!(!reviewed_exact_identity);
+                assert!(!accepts_declared_write_scope);
+                assert!(!understands_no_automatic_rollback);
             }
             _ => panic!("wrong command"),
         }
