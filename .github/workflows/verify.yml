@@ -19,7 +19,23 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Check Rust with Clippy
+        id: clippy
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee clippy.log
+      - name: Upload Clippy diagnostics
+        if: steps.clippy.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: clippy-log
+          path: clippy.log
+          if-no-files-found: error
+      - name: Enforce successful Clippy check
+        if: steps.clippy.outcome == 'failure'
+        run: exit 1
       - run: cargo test --workspace
 
   frontend:
