@@ -7,8 +7,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use toolos_domain::{RpcRequest, RpcResponse, ADAPTER_PROTOCOL_VERSION};
 use toolos_winget::{
-    identity_probe, install_preview, normalize_selector, uninstall_preview, version_probe,
-    PackageSelector, ProcessEvidence, ResolutionStatus, WingetResolutionReport,
+    identity_probe, install_preview, installed_probe, normalize_selector, uninstall_preview,
+    version_probe, InstalledQueryStatus, PackageSelector, ProcessEvidence, ResolutionStatus,
+    WingetInstalledStateReport, WingetResolutionReport,
 };
 
 const MAX_CAPTURE_BYTES: usize = 64 * 1024;
@@ -47,6 +48,7 @@ async fn handle_request(request: RpcRequest) -> RpcResponse {
     let result: Result<Value, String> = match request.method.as_str() {
         "adapter.health" => adapter_health().await,
         "winget.resolve" => resolve_request(request.params.clone()).await,
+        "winget.installed" => installed_request(request.params.clone()).await,
         _ => Err(format!("unknown adapter method: {}", request.method)),
     };
 
@@ -68,6 +70,7 @@ async fn adapter_health() -> Result<Value, String> {
             "probe": evidence,
             "capabilities": [
                 "package.resolve.winget",
+                "package.installed.query.winget",
                 "package.preview.install",
                 "package.preview.uninstall"
             ]
@@ -88,9 +91,7 @@ async fn adapter_health() -> Result<Value, String> {
 }
 
 async fn resolve_request(params: Value) -> Result<Value, String> {
-    let selector = serde_json::from_value::<PackageSelector>(params)
-        .map_err(|error| format!("winget.resolve requires a valid package selector: {error}"))?;
-    let selector = normalize_selector(selector)?;
+    let selector = parse_selector(params, "winget.resolve")?;
     let probe = identity_probe(&selector);
     let install = install_preview(&selector);
     let uninstall = uninstall_preview(&selector);
@@ -108,7 +109,7 @@ async fn resolve_request(params: Value) -> Result<Value, String> {
         Ok(evidence) if evidence.exit_code == Some(0) && !evidence.timed_out => (
             ResolutionStatus::ResolvedExact,
             Some(evidence),
-            "Review the exact WinGet metadata and disabled command previews; no installation action is enabled yet."
+            "Check the exact installed-state evidence before deciding whether an installation plan is needed."
                 .to_owned(),
         ),
         Ok(evidence) => (
@@ -119,15 +120,7 @@ async fn resolve_request(params: Value) -> Result<Value, String> {
         ),
         Err(error) => (
             ResolutionStatus::Unavailable,
-            Some(ProcessEvidence {
-                executable: probe.executable.clone(),
-                args: probe.args.clone(),
-                exit_code: None,
-                stdout: String::new(),
-                stderr: error,
-                timed_out: false,
-                duration_ms: 0,
-            }),
+            Some(unavailable_evidence(&probe, error)),
             "Install or repair Microsoft App Installer / WinGet, then run exact package resolution again."
                 .to_owned(),
         ),
@@ -156,6 +149,81 @@ async fn resolve_request(params: Value) -> Result<Value, String> {
     };
 
     serde_json::to_value(report).map_err(|error| error.to_string())
+}
+
+async fn installed_request(params: Value) -> Result<Value, String> {
+    let selector = parse_selector(params, "winget.installed")?;
+    let probe = installed_probe(&selector);
+    let version = run_command("winget", &["--version".to_owned()], Duration::from_secs(5)).await;
+    let provider_version = version.as_ref().ok().and_then(provider_version);
+
+    let (status, installed_evidence, single_safest_next_action) = match run_command(
+        &probe.executable,
+        &probe.args,
+        Duration::from_secs(45),
+    )
+    .await
+    {
+        Ok(evidence) if evidence.exit_code == Some(0) && !evidence.timed_out => (
+            InstalledQueryStatus::QueryCompleted,
+            Some(evidence),
+            "Review the bounded WinGet output. ToolOS does not infer an installed match from localized table text in this slice."
+                .to_owned(),
+        ),
+        Ok(evidence) => (
+            InstalledQueryStatus::Blocked,
+            Some(evidence),
+            "Review the captured WinGet output and repair the package source, selector, or agreement state before relying on installed-state evidence."
+                .to_owned(),
+        ),
+        Err(error) => (
+            InstalledQueryStatus::Unavailable,
+            Some(unavailable_evidence(&probe, error)),
+            "Install or repair Microsoft App Installer / WinGet, then run the installed-state query again."
+                .to_owned(),
+        ),
+    };
+
+    let report = WingetInstalledStateReport {
+        provider_id: "winget".to_owned(),
+        provider_version,
+        status,
+        selector,
+        installed_probe: probe,
+        installed_evidence,
+        observed_at: chrono::Utc::now(),
+        definitive_installed_match: None,
+        limitations: vec![
+            "The WinGet CLI list output is locale-dependent and no documented stable JSON output is used here."
+                .to_owned(),
+            "An exit code of zero proves that the query completed, not that ToolOS parsed one definitive installed match."
+                .to_owned(),
+            "Version and architecture are intentionally not sent because the documented list filters used here are exact ID, source, and optional scope."
+                .to_owned(),
+            "No package, source, registry, file, or installer state is modified.".to_owned(),
+        ],
+        single_safest_next_action,
+    };
+
+    serde_json::to_value(report).map_err(|error| error.to_string())
+}
+
+fn parse_selector(params: Value, method: &str) -> Result<PackageSelector, String> {
+    let selector = serde_json::from_value::<PackageSelector>(params)
+        .map_err(|error| format!("{method} requires a valid package selector: {error}"))?;
+    normalize_selector(selector)
+}
+
+fn unavailable_evidence(command: &toolos_winget::CommandPreview, error: String) -> ProcessEvidence {
+    ProcessEvidence {
+        executable: command.executable.clone(),
+        args: command.args.clone(),
+        exit_code: None,
+        stdout: String::new(),
+        stderr: error,
+        timed_out: false,
+        duration_ms: 0,
+    }
 }
 
 async fn run_command(
