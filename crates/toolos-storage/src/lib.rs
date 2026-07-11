@@ -139,6 +139,17 @@ pub struct StoredResourceLock {
     pub expires_at: DateTime<Utc>,
 }
 
+#[derive(Debug)]
+pub struct ActionPlanApproval<'a> {
+    pub plan_id: Uuid,
+    pub expected_hash: &'a str,
+    pub confirmation: &'a str,
+    pub updated_plan_json: &'a str,
+    pub receipt: &'a StoredApprovalReceipt,
+    pub lock: &'a StoredResourceLock,
+    pub now: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Storage {
     path: PathBuf,
@@ -320,14 +331,15 @@ impl Storage {
 
     pub fn approve_action_plan(
         &self,
-        plan_id: Uuid,
-        expected_hash: &str,
-        confirmation: &str,
-        updated_plan_json: &str,
-        receipt: &StoredApprovalReceipt,
-        lock: &StoredResourceLock,
-        now: DateTime<Utc>,
+        approval: &ActionPlanApproval<'_>,
     ) -> Result<(), StorageError> {
+        let plan_id = approval.plan_id;
+        let expected_hash = approval.expected_hash;
+        let confirmation = approval.confirmation;
+        let updated_plan_json = approval.updated_plan_json;
+        let receipt = approval.receipt;
+        let lock = approval.lock;
+        let now = approval.now;
         let mut connection = self.open_connection()?;
         connection.set_transaction_behavior(TransactionBehavior::Immediate);
         let transaction = connection.transaction()?;
@@ -554,7 +566,15 @@ mod tests {
             expires_at: receipt.expires_at,
         };
         storage
-            .approve_action_plan(plan_id, "abc", "APPROVE", "{}", &receipt, &lock, now)
+            .approve_action_plan(&ActionPlanApproval {
+                plan_id,
+                expected_hash: "abc",
+                confirmation: "APPROVE",
+                updated_plan_json: "{}",
+                receipt: &receipt,
+                lock: &lock,
+                now,
+            })
             .expect("approve plan");
         let saved = storage
             .get_action_plan(plan_id)
@@ -605,7 +625,15 @@ mod tests {
             expires_at: receipt.expires_at,
         };
         assert!(matches!(
-            storage.approve_action_plan(plan_id, "abc", "WRONG", "{}", &receipt, &lock, now),
+            storage.approve_action_plan(&ActionPlanApproval {
+                plan_id,
+                expected_hash: "abc",
+                confirmation: "WRONG",
+                updated_plan_json: "{}",
+                receipt: &receipt,
+                lock: &lock,
+                now,
+            }),
             Err(StorageError::ApprovalPhraseMismatch)
         ));
     }

@@ -6,53 +6,9 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-governed-plan-fix:
-    name: Apply governed plan fix
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'feature/winget-governed-plan' && github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - name: Apply exact fixes and capture diagnostics
-        id: fixer
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          python .github/_normalize_daemon_import.py 2>&1 | tee governed-plan-fix.log
-          python .github/_fix_governed_plan_v2.py 2>&1 | tee -a governed-plan-fix.log
-      - name: Upload fixer diagnostics
-        uses: actions/upload-artifact@v4
-        with:
-          name: governed-plan-fix-diagnostics
-          path: governed-plan-fix.log
-          if-no-files-found: error
-      - name: Enforce fixer success
-        if: steps.fixer.outcome == 'failure'
-        run: exit 1
-      - run: cargo fmt --all
-      - name: Remove temporary files
-        run: |
-          rm -f .github/_fix_governed_plan.py
-          rm -f .github/_fix_governed_plan_v2.py
-          rm -f .github/_normalize_daemon_import.py
-          rm -f .github/workflows/fix-governed-plan.yml
-          rm -f .github/workflows/capture-clippy.yml
-          rm -f governed-plan-fix.log
-      - name: Commit verified source correction
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Fix governed plan approval transaction and expiry state"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
-
   rust:
     name: Rust workspace
     runs-on: ubuntu-latest

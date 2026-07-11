@@ -11,7 +11,9 @@ use tokio::process::Command;
 use toolos_domain::{
     EvidenceKind, EvidenceRecord, HealthReport, ProjectInspectParams, RpcRequest, RpcResponse,
 };
-use toolos_storage::{Storage, StoredActionPlan, StoredApprovalReceipt, StoredResourceLock};
+use toolos_storage::{
+    ActionPlanApproval, Storage, StoredActionPlan, StoredApprovalReceipt, StoredResourceLock,
+};
 use toolos_winget::{
     build_approval_receipt, build_install_plan, InstallPlanStatus, WingetInstallPlan,
     WingetInstalledStateReport, WingetResolutionReport,
@@ -371,7 +373,16 @@ fn winget_install_plan_get(state: &AppState, params: &Value) -> anyhow::Result<V
         .storage
         .get_action_plan(plan_id)?
         .with_context(|| format!("install plan not found: {plan_id}"))?;
-    Ok(serde_json::from_str(&stored.record_json)?)
+    let mut plan: WingetInstallPlan = serde_json::from_str(&stored.record_json)?;
+    if plan.status == InstallPlanStatus::AwaitingApproval && Utc::now() >= plan.expires_at {
+        plan.status = InstallPlanStatus::Expired;
+        plan.approval_allowed = false;
+        plan.approval_challenge = None;
+        plan.single_safest_next_action =
+            "This plan expired. Create a new plan from fresh identity and installed-state evidence."
+                .to_owned();
+    }
+    Ok(serde_json::to_value(plan)?)
 }
 
 fn winget_install_approve(
@@ -412,15 +423,15 @@ fn winget_install_approve(
         acquired_at: receipt.approved_at,
         expires_at: receipt.lock_expires_at,
     };
-    state.storage.approve_action_plan(
+    state.storage.approve_action_plan(&ActionPlanApproval {
         plan_id,
-        &expected_hash,
-        &confirmation,
-        &updated_plan_json,
-        &stored_receipt,
-        &lock,
+        expected_hash: &expected_hash,
+        confirmation: &confirmation,
+        updated_plan_json: &updated_plan_json,
+        receipt: &stored_receipt,
+        lock: &lock,
         now,
-    )?;
+    })?;
     let evidence = EvidenceRecord::new(
         trace_id,
         EvidenceKind::AdapterInvocation,
