@@ -362,8 +362,7 @@ mod tests {
     fn path_parameter_must_be_non_empty() {
         assert!(required_path(&json!({"path": "  "}), "archive.inspect").is_err());
         assert_eq!(
-            required_path(&json!({"path": "fixture.zip"}), "archive.inspect")
-                .expect("path"),
+            required_path(&json!({"path": "fixture.zip"}), "archive.inspect").expect("path"),
             "fixture.zip"
         );
     }

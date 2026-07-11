@@ -75,10 +75,17 @@ pub struct ZipInspectionReport {
 
 pub fn inspect_zip(path: impl AsRef<Path>) -> Result<ZipInspectionReport, String> {
     let requested = path.as_ref();
-    let metadata = fs::metadata(requested)
-        .map_err(|error| format!("cannot read archive metadata for {}: {error}", requested.display()))?;
+    let metadata = fs::metadata(requested).map_err(|error| {
+        format!(
+            "cannot read archive metadata for {}: {error}",
+            requested.display()
+        )
+    })?;
     if !metadata.is_file() {
-        return Err(format!("selected archive path is not a file: {}", requested.display()));
+        return Err(format!(
+            "selected archive path is not a file: {}",
+            requested.display()
+        ));
     }
 
     let canonical = requested
@@ -86,8 +93,12 @@ pub fn inspect_zip(path: impl AsRef<Path>) -> Result<ZipInspectionReport, String
         .map_err(|error| format!("cannot canonicalize {}: {error}", requested.display()))?;
     let file = File::open(&canonical)
         .map_err(|error| format!("cannot open {}: {error}", canonical.display()))?;
-    let mut archive = ZipArchive::new(file)
-        .map_err(|error| format!("invalid or unsupported ZIP archive {}: {error}", canonical.display()))?;
+    let mut archive = ZipArchive::new(file).map_err(|error| {
+        format!(
+            "invalid or unsupported ZIP archive {}: {error}",
+            canonical.display()
+        )
+    })?;
 
     let archive_entries = archive.len();
     let mut findings = Vec::new();
@@ -122,9 +133,9 @@ pub fn inspect_zip(path: impl AsRef<Path>) -> Result<ZipInspectionReport, String
             .by_index(index)
             .map_err(|error| format!("cannot inspect ZIP entry {index}: {error}"))?;
         let decoded_name = entry.name().ok().map(|name| name.into_owned());
-        let name = decoded_name.clone().unwrap_or_else(|| {
-            format!("<non-UTF8-name:{}-bytes>", entry.name_raw().len())
-        });
+        let name = decoded_name
+            .clone()
+            .unwrap_or_else(|| format!("<non-UTF8-name:{}-bytes>", entry.name_raw().len()));
         let enclosed_path = entry
             .enclosed_name()
             .map(|value| value.to_string_lossy().into_owned());
@@ -176,9 +187,7 @@ pub fn inspect_zip(path: impl AsRef<Path>) -> Result<ZipInspectionReport, String
                     "WINDOWS_PATH_COLLISION",
                     index,
                     &name,
-                    format!(
-                        "Entry collides on Windows with entry {first_index} ({first_name})."
-                    ),
+                    format!("Entry collides on Windows with entry {first_index} ({first_name})."),
                 ));
             } else {
                 normalized_paths.insert(normalized, (index, name.clone()));
@@ -335,7 +344,10 @@ fn inspect_windows_path(index: usize, name: &str, findings: &mut Vec<ArchiveFind
         ));
     }
 
-    for component in name.split(['/', '\\']).filter(|component| !component.is_empty()) {
+    for component in name
+        .split(['/', '\\'])
+        .filter(|component| !component.is_empty())
+    {
         if component == ".." {
             findings.push(entry_finding(
                 FindingSeverity::Blocker,
@@ -385,7 +397,11 @@ fn has_drive_prefix(name: &str) -> bool {
 
 fn is_windows_reserved_name(component: &str) -> bool {
     let trimmed = component.trim_end_matches(|character| character == ' ' || character == '.');
-    let stem = trimmed.split('.').next().unwrap_or_default().to_ascii_uppercase();
+    let stem = trimmed
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
     matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
         || stem
             .strip_prefix("COM")
@@ -498,8 +514,7 @@ mod tests {
 
     fn write_archive(label: &str, files: &[(&str, &[u8])]) -> PathBuf {
         let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
-        let options =
-            SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
         for (name, contents) in files {
             writer
                 .start_file(*name, options)
@@ -538,7 +553,10 @@ mod tests {
     fn case_insensitive_windows_collision_is_blocked() {
         let path = write_archive(
             "collision",
-            &[("Folder/Readme.txt", b"first"), ("folder/README.TXT", b"second")],
+            &[
+                ("Folder/Readme.txt", b"first"),
+                ("folder/README.TXT", b"second"),
+            ],
         );
         let report = inspect_zip(&path).expect("inspect ZIP");
         assert_eq!(report.decision, ArchiveDecision::Block);
