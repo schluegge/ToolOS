@@ -9,12 +9,16 @@
   },
   "protocol": "toolos-jsonrpc-1",
   "permissions": {
-    "filesystem": ["PATH_METADATA", "SELECTED_PROJECT_TOP_LEVEL"],
+    "filesystem": [
+      "PATH_METADATA",
+      "SELECTED_PROJECT_TOP_LEVEL",
+      "SELECTED_ARCHIVE_METADATA"
+    ],
     "network": [],
     "credentials": [],
     "process_spawn": []
   },
-  "capabilities": ["machine.inspect", "project.inspect"],
+  "capabilities": ["machine.inspect", "project.inspect", "archive.inspect"],
   "healthcheck": {
     "method": "adapter.health",
     "timeout_seconds": 5
