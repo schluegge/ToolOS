@@ -388,7 +388,7 @@ fn has_drive_prefix(name: &str) -> bool {
 }
 
 fn is_windows_reserved_name(component: &str) -> bool {
-    let trimmed = component.trim_end_matches(|character| character == ' ' || character == '.');
+    let trimmed = component.trim_end_matches([' ', '.']);
     let stem = trimmed
         .split('.')
         .next()
@@ -408,11 +408,7 @@ fn is_windows_reserved_name(component: &str) -> bool {
 fn normalize_windows_path(name: &str) -> String {
     name.split(['/', '\\'])
         .filter(|component| !component.is_empty() && *component != ".")
-        .map(|component| {
-            component
-                .trim_end_matches(|character| character == ' ' || character == '.')
-                .to_ascii_lowercase()
-        })
+        .map(|component| component.trim_end_matches([' ', '.']).to_ascii_lowercase())
         .collect::<Vec<_>>()
         .join("/")
 }
@@ -448,10 +444,13 @@ fn suspicious_extension(name: &str) -> bool {
 fn expansion_ratio(uncompressed_size: u64, compressed_size: u64) -> Option<u64> {
     if uncompressed_size == 0 {
         None
-    } else if compressed_size == 0 {
-        Some(u64::MAX)
     } else {
-        Some(uncompressed_size.saturating_add(compressed_size - 1) / compressed_size)
+        Some(
+            uncompressed_size
+                .saturating_add(compressed_size.saturating_sub(1))
+                .checked_div(compressed_size)
+                .unwrap_or(u64::MAX),
+        )
     }
 }
 
