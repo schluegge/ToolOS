@@ -1,27 +1,7 @@
 /tmp/patch.py.gz: OK
 Traceback (most recent call last):
-  File "/usr/lib/python3.12/pathlib.py", line 1313, in mkdir
-    os.mkdir(self, mode)
-FileNotFoundError: [Errno 2] No such file or directory: '/crates/toolos-winget/src'
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/usr/lib/python3.12/pathlib.py", line 1313, in mkdir
-    os.mkdir(self, mode)
-FileNotFoundError: [Errno 2] No such file or directory: '/crates/toolos-winget'
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/tmp/apply-governed-winget-execution.py", line 39, in <module>
-    write(
-  File "/tmp/apply-governed-winget-execution.py", line 14, in write
-    target.parent.mkdir(parents=True, exist_ok=True)
-  File "/usr/lib/python3.12/pathlib.py", line 1317, in mkdir
-    self.parent.mkdir(parents=True, exist_ok=True)
-  File "/usr/lib/python3.12/pathlib.py", line 1317, in mkdir
-    self.parent.mkdir(parents=True, exist_ok=True)
-  File "/usr/lib/python3.12/pathlib.py", line 1313, in mkdir
-    os.mkdir(self, mode)
-PermissionError: [Errno 13] Permission denied: '/crates'
+  File "/home/runner/work/ToolOS/ToolOS/tools/.apply-governed-winget-execution.py", line 340, in <module>
+    replace_once(
+  File "/home/runner/work/ToolOS/ToolOS/tools/.apply-governed-winget-execution.py", line 22, in replace_once
+    raise RuntimeError(f"{path}: expected exactly one marker, found {count}: {old[:120]!r}")
+RuntimeError: adapters/toolos-winget-adapter/src/main.rs: expected exactly one marker, found 2: '                "package.preview.install",\n                "package.preview.uninstall"\n'
