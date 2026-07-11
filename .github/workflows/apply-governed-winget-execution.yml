@@ -5,6 +5,10 @@ on:
     branches: [build/winget-user-execution]
     paths:
       - tools/apply-governed-winget-execution.py.gz.b64
+  pull_request:
+    branches: [main]
+    paths:
+      - tools/apply-governed-winget-execution.py.gz.b64
 
 permissions:
   contents: write
