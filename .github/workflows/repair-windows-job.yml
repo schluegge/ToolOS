@@ -5,6 +5,10 @@ on:
     branches: [build/windows-job-containment]
     paths:
       - tools/windows-job-repair.marker
+  pull_request:
+    branches: [build/winget-user-execution]
+    paths:
+      - tools/windows-job-repair.marker
 
 permissions:
   contents: write
