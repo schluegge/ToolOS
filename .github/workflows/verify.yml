@@ -25,7 +25,8 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
-          python .github/_fix_governed_plan_v2.py 2>&1 | tee governed-plan-fix.log
+          python .github/_normalize_daemon_import.py 2>&1 | tee governed-plan-fix.log
+          python .github/_fix_governed_plan_v2.py 2>&1 | tee -a governed-plan-fix.log
       - name: Upload fixer diagnostics
         uses: actions/upload-artifact@v4
         with:
@@ -40,6 +41,7 @@ jobs:
         run: |
           rm -f .github/_fix_governed_plan.py
           rm -f .github/_fix_governed_plan_v2.py
+          rm -f .github/_normalize_daemon_import.py
           rm -f .github/workflows/fix-governed-plan.yml
           rm -f .github/workflows/capture-clippy.yml
           rm -f governed-plan-fix.log
