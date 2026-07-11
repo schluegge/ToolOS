@@ -17,7 +17,7 @@ exclude = ["apps/toolos-ui/src-tauri"]
 version = "0.1.0"
 edition = "2021"
 license = "UNLICENSED"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [workspace.dependencies]
 anyhow = "1"
@@ -35,7 +35,7 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-zip = { version = "9", default-features = false, features = ["deflate"] }
+zip = { version = "=8.3.1", default-features = false, features = ["deflate"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
