@@ -6,7 +6,11 @@ use toolos_domain::{RpcRequest, RpcResponse};
 #[derive(Debug, Parser)]
 #[command(name = "toolos", version, about = "ToolOS local control-plane CLI")]
 struct Cli {
-    #[arg(long, global = true, help = "Emit compact JSON instead of formatted JSON")]
+    #[arg(
+        long,
+        global = true,
+        help = "Emit compact JSON instead of formatted JSON"
+    )]
     compact: bool,
     #[command(subcommand)]
     command: Command,
@@ -51,8 +55,8 @@ async fn main() -> anyhow::Result<()> {
         Command::Events { limit } => ("events.replay".to_owned(), json!({"limit": limit})),
         Command::Capabilities => ("capabilities.list".to_owned(), json!({})),
         Command::Raw { method, params } => {
-            let params = serde_json::from_str::<Value>(&params)
-                .context("--params must be valid JSON")?;
+            let params =
+                serde_json::from_str::<Value>(&params).context("--params must be valid JSON")?;
             (method, params)
         }
     };

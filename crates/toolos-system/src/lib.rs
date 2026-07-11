@@ -9,23 +9,83 @@ use toolos_domain::{EnvironmentKind, MachineSnapshot, ProjectSnapshot, ToolObser
 const TOOL_CANDIDATES: &[(&str, &str, &[&str], EnvironmentKind)] = &[
     ("git", "Git", &["git"], EnvironmentKind::WindowsNative),
     ("cargo", "Cargo", &["cargo"], EnvironmentKind::WindowsNative),
-    ("rustc", "Rust compiler", &["rustc"], EnvironmentKind::WindowsNative),
+    (
+        "rustc",
+        "Rust compiler",
+        &["rustc"],
+        EnvironmentKind::WindowsNative,
+    ),
     ("node", "Node.js", &["node"], EnvironmentKind::WindowsNative),
     ("pnpm", "pnpm", &["pnpm"], EnvironmentKind::WindowsNative),
-    ("python", "Python", &["python", "python3"], EnvironmentKind::WindowsNative),
+    (
+        "python",
+        "Python",
+        &["python", "python3"],
+        EnvironmentKind::WindowsNative,
+    ),
     ("uv", "uv", &["uv"], EnvironmentKind::WindowsNative),
-    ("pwsh", "PowerShell 7", &["pwsh"], EnvironmentKind::PowerShell),
-    ("powershell", "Windows PowerShell", &["powershell"], EnvironmentKind::PowerShell),
-    ("winget", "WinGet", &["winget"], EnvironmentKind::WindowsNative),
-    ("wsl", "Windows Subsystem for Linux", &["wsl"], EnvironmentKind::Wsl),
+    (
+        "pwsh",
+        "PowerShell 7",
+        &["pwsh"],
+        EnvironmentKind::PowerShell,
+    ),
+    (
+        "powershell",
+        "Windows PowerShell",
+        &["powershell"],
+        EnvironmentKind::PowerShell,
+    ),
+    (
+        "winget",
+        "WinGet",
+        &["winget"],
+        EnvironmentKind::WindowsNative,
+    ),
+    (
+        "wsl",
+        "Windows Subsystem for Linux",
+        &["wsl"],
+        EnvironmentKind::Wsl,
+    ),
     ("docker", "Docker", &["docker"], EnvironmentKind::Container),
     ("podman", "Podman", &["podman"], EnvironmentKind::Container),
-    ("ollama", "Ollama", &["ollama"], EnvironmentKind::WindowsNative),
-    ("codex", "Codex CLI", &["codex"], EnvironmentKind::WindowsNative),
-    ("claude", "Claude Code", &["claude"], EnvironmentKind::WindowsNative),
-    ("gemini", "Gemini CLI", &["gemini"], EnvironmentKind::WindowsNative),
-    ("opencode", "OpenCode", &["opencode"], EnvironmentKind::WindowsNative),
-    ("pi", "Pi coding agent", &["pi"], EnvironmentKind::WindowsNative),
+    (
+        "ollama",
+        "Ollama",
+        &["ollama"],
+        EnvironmentKind::WindowsNative,
+    ),
+    (
+        "codex",
+        "Codex CLI",
+        &["codex"],
+        EnvironmentKind::WindowsNative,
+    ),
+    (
+        "claude",
+        "Claude Code",
+        &["claude"],
+        EnvironmentKind::WindowsNative,
+    ),
+    (
+        "gemini",
+        "Gemini CLI",
+        &["gemini"],
+        EnvironmentKind::WindowsNative,
+    ),
+    (
+        "opencode",
+        "OpenCode",
+        &["opencode"],
+        EnvironmentKind::WindowsNative,
+    ),
+    (
+        "pi",
+        "Pi coding agent",
+        &["pi"],
+        EnvironmentKind::WindowsNative,
+    ),
 ];
 
 const PROJECT_MARKERS: &[(&str, &str)] = &[
@@ -164,7 +224,10 @@ pub fn inspect_project(path: impl AsRef<Path>) -> ProjectSnapshot {
 fn resolve_executable(name: &str) -> Option<PathBuf> {
     let candidate = Path::new(name);
     if candidate.components().count() > 1 && candidate.is_file() {
-        return candidate.canonicalize().ok().or_else(|| Some(candidate.to_path_buf()));
+        return candidate
+            .canonicalize()
+            .ok()
+            .or_else(|| Some(candidate.to_path_buf()));
     }
 
     let path = env::var_os("PATH")?;
@@ -288,8 +351,7 @@ mod tests {
         let root = env::temp_dir().join(format!("toolos-project-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join(".git")).expect("git directory");
-        fs::write(root.join("Cargo.toml"), "[package]\nname='fixture'\n")
-            .expect("cargo marker");
+        fs::write(root.join("Cargo.toml"), "[package]\nname='fixture'\n").expect("cargo marker");
         fs::write(root.join("AGENTS.md"), "fixture").expect("instruction marker");
 
         let snapshot = inspect_project(&root);

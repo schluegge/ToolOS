@@ -105,9 +105,8 @@ impl Storage {
 
     pub fn list_evidence(&self, limit: usize) -> Result<Vec<EvidenceRecord>, StorageError> {
         let connection = self.open_connection()?;
-        let mut statement = connection.prepare(
-            "SELECT record_json FROM evidence ORDER BY observed_at DESC LIMIT ?1",
-        )?;
+        let mut statement = connection
+            .prepare("SELECT record_json FROM evidence ORDER BY observed_at DESC LIMIT ?1")?;
         let rows = statement.query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
             row.get::<_, String>(0)
         })?;

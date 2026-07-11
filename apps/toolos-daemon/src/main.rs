@@ -100,10 +100,11 @@ async fn handle_request(state: Arc<AppState>, request: RpcRequest) -> RpcRespons
 async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> anyhow::Result<Value> {
     match request.method.as_str() {
         "daemon.ping" => {
-            let adapter_status = match invoke_adapter(&state.adapter_path, "adapter.health", json!({})).await {
-                Ok(_) => "HEALTHY",
-                Err(_) => "UNREACHABLE",
-            };
+            let adapter_status =
+                match invoke_adapter(&state.adapter_path, "adapter.health", json!({})).await {
+                    Ok(_) => "HEALTHY",
+                    Err(_) => "UNREACHABLE",
+                };
             let report = HealthReport {
                 service: "toolos-daemon".to_owned(),
                 version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -263,8 +264,7 @@ fn database_path() -> anyhow::Result<PathBuf> {
         let directory = std::env::var_os("XDG_DATA_HOME")
             .map(PathBuf::from)
             .or_else(|| {
-                std::env::var_os("HOME")
-                    .map(|home| PathBuf::from(home).join(".local/share"))
+                std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
             })
             .unwrap_or_else(std::env::temp_dir);
         Ok(directory.join("toolos").join("toolos.db"))
@@ -288,8 +288,8 @@ fn adapter_path() -> anyhow::Result<PathBuf> {
 }
 
 fn initialize_tracing() {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("toolos=info"));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("toolos=info"));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(true)

@@ -47,7 +47,9 @@ async fn wait_for_daemon() -> anyhow::Result<()> {
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
-    Err(anyhow!("ToolOS daemon did not become reachable after startup"))
+    Err(anyhow!(
+        "ToolOS daemon did not become reachable after startup"
+    ))
 }
 
 async fn start_ui(directory: &Path) -> anyhow::Result<()> {
