@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://toolos.dev/schemas/winget-action-plan.schema.json",
+  "title": "ToolOS durable WinGet action plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "trace_id",
+    "kind",
+    "status",
+    "package_resolution",
+    "command",
+    "command_sha256",
+    "confirmation_phrase",
+    "created_at",
+    "expires_at",
+    "approved_at",
+    "acknowledgements",
+    "execution_available",
+    "blocked_execution_gates",
+    "rollback"
+  ],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "trace_id": { "type": "string", "format": "uuid" },
+    "kind": {
+      "type": "string",
+      "enum": ["WINGET_INSTALL", "WINGET_UNINSTALL"]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "WAITING_APPROVAL",
+        "APPROVED_AWAITING_EXECUTOR",
+        "REJECTED",
+        "EXPIRED"
+      ]
+    },
+    "package_resolution": {
+      "$ref": "winget-resolution.schema.json"
+    },
+    "command": {
+      "$ref": "winget-resolution.schema.json#/$defs/command"
+    },
+    "command_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "confirmation_phrase": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "approved_at": { "type": ["string", "null"], "format": "date-time" },
+    "acknowledgements": {
+      "oneOf": [
+        { "$ref": "#/$defs/acknowledgements" },
+        { "type": "null" }
+      ]
+    },
+    "execution_available": { "const": false },
+    "blocked_execution_gates": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "rollback": { "$ref": "#/$defs/rollback" }
+  },
+  "$defs": {
+    "acknowledgements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewed_exact_identity",
+        "accepts_declared_write_scope",
+        "understands_no_automatic_rollback"
+      ],
+      "properties": {
+        "reviewed_exact_identity": { "const": true },
+        "accepts_declared_write_scope": { "const": true },
+        "understands_no_automatic_rollback": { "const": true }
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reversibility",
+        "uninstall_preview",
+        "covered_surfaces",
+        "uncovered_surfaces",
+        "single_safest_recovery_action"
+      ],
+      "properties": {
+        "reversibility": { "const": "PARTIAL_UNVERIFIED" },
+        "uninstall_preview": {
+          "$ref": "winget-resolution.schema.json#/$defs/command"
+        },
+        "covered_surfaces": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "uncovered_surfaces": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "single_safest_recovery_action": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
