@@ -4,8 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - tools/apply-governed-winget-execution.py.gz.b64
-      - .github/workflows/apply-governed-winget-execution.yml
+      - tools/patch-ready.sha256
 
 permissions:
   contents: write
@@ -32,7 +31,10 @@ jobs:
           set -o pipefail
           rm -f PATCH_FAILURE.txt
           {
-            base64 --decode tools/apply-governed-winget-execution.py.gz.b64 | gzip --decompress > /tmp/apply-governed-winget-execution.py
+            cat tools/patch-parts/*.b64 | base64 --decode > /tmp/patch.py.gz
+            sha256sum -c tools/patch-ready.sha256
+            gzip --test /tmp/patch.py.gz
+            gzip --decompress --stdout /tmp/patch.py.gz > /tmp/apply-governed-winget-execution.py
             python /tmp/apply-governed-winget-execution.py
             cargo fmt --all
             cargo clippy --workspace --all-targets -- -D warnings
@@ -58,6 +60,9 @@ jobs:
           git config user.email "toolos-build-bot@users.noreply.github.com"
           git rm .github/workflows/apply-governed-winget-execution.yml
           git rm tools/apply-governed-winget-execution.py.gz.b64
+          git rm -r tools/patch-parts
+          git rm tools/patch-ready.sha256
+          git rm -f PATCH_FAILURE.txt
           git add -A
           git commit -m "Execute governed pinned user-scope WinGet plans"
           git push origin HEAD:build/winget-user-execution
