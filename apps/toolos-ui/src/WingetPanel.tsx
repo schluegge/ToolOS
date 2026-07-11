@@ -6,6 +6,7 @@ import {
   type WingetPackageSelector,
   type WingetResolutionReport,
 } from "./api";
+import "./winget.css";
 
 type Props = {
   disabled?: boolean;

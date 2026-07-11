@@ -7,6 +7,7 @@ import {
   type ProjectSnapshot,
   type ZipInspectionReport,
 } from "./api";
+import { WingetPanel } from "./WingetPanel";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
@@ -133,6 +134,7 @@ function App() {
           <a href="#machine">Machine</a>
           <a href="#project">Project</a>
           <a href="#archive">Archive</a>
+          <a href="#winget">WinGet</a>
           <a href="#evidence">Evidence</a>
         </nav>
         <div className="safety-note">
@@ -145,8 +147,8 @@ function App() {
       <main>
         <header id="overview" className="topbar">
           <div>
-            <p className="eyebrow">Milestone B · trusted state graph</p>
-            <h1>Understand the machine, project, and archive before changing them.</h1>
+            <p className="eyebrow">Milestone C · managed machine</p>
+            <h1>Resolve tools and packages exactly before changing the machine.</h1>
           </div>
           <button
             className="secondary"
@@ -397,13 +399,18 @@ function App() {
           )}
         </section>
 
+        <WingetPanel
+          disabled={status === "loading"}
+          onEvidence={refreshEvidence}
+        />
+
         <section id="evidence" className="panel">
           <div className="panel-heading">
             <div>
               <p className="eyebrow">Structured evidence</p>
               <h2>Recent observations</h2>
               <p>
-                Every machine, project, and archive claim carries scope, provider,
+                Every machine, project, archive, and package claim carries scope, provider,
                 timestamp, limitations, and a content hash.
               </p>
             </div>
@@ -426,7 +433,7 @@ function App() {
               ))}
             </div>
           ) : (
-            <EmptyState text="Run a machine, project, or archive inspection to create evidence." />
+            <EmptyState text="Run a machine, project, archive, or package inspection to create evidence." />
           )}
         </section>
       </main>
