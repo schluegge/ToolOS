@@ -3,6 +3,7 @@ import {
   api,
   type ResourceLock,
   type WingetInstallApprovalReceipt,
+  type WingetInstallExecutionReport,
   type WingetInstallPlan,
   type WingetPackageSelector,
 } from "./api";
@@ -21,6 +22,8 @@ export function InstallPlanPanel({ selector, disabled = false, onEvidence }: Pro
   const [receipt, setReceipt] = useState<WingetInstallApprovalReceipt | null>(null);
   const [lock, setLock] = useState<ResourceLock | null>(null);
   const [confirmation, setConfirmation] = useState("");
+  const [executionConfirmation, setExecutionConfirmation] = useState("");
+  const [execution, setExecution] = useState<WingetInstallExecutionReport | null>(null);
   const [state, setState] = useState<State>("idle");
   const [message, setMessage] = useState(
     "Create a short-lived dry-run plan that binds identity, installed-state evidence, command, approval, and lock.",
@@ -31,6 +34,8 @@ export function InstallPlanPanel({ selector, disabled = false, onEvidence }: Pro
     setReceipt(null);
     setLock(null);
     setConfirmation("");
+    setExecutionConfirmation("");
+    setExecution(null);
     setMessage("Resolving identity and installed state, then hashing an immutable plan…");
     try {
       const result = await api.createWingetInstallPlan(selector);
@@ -63,6 +68,34 @@ export function InstallPlanPanel({ selector, disabled = false, onEvidence }: Pro
     } catch (error) {
       setState("error");
       setMessage(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const execute = async () => {
+    if (!plan || !receipt) return;
+    setState("loading");
+    setMessage("Revalidating the pinned plan, consuming the one-time receipt, and invoking WinGet…");
+    try {
+      const result = await api.executeWingetInstallPlan(
+        plan.plan_id,
+        receipt.approval_id,
+        executionConfirmation,
+      );
+      setPlan(result.plan);
+      setExecution(result.report);
+      setLock(null);
+      await onEvidence();
+      setState("ready");
+      setMessage(result.report.single_safest_next_action);
+    } catch (error) {
+      setState("error");
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const copyExecutionPhrase = async () => {
+    if (receipt?.execution_confirmation) {
+      await navigator.clipboard.writeText(receipt.execution_confirmation);
     }
   };
 
@@ -152,10 +185,66 @@ export function InstallPlanPanel({ selector, disabled = false, onEvidence }: Pro
 
           {receipt && lock ? (
             <div className="approval-receipt">
-              <strong>Approved, execution still disabled</strong>
+              <strong>Approved; a separate exact execution phrase is still required</strong>
               <span>Approval {receipt.approval_id}</span>
               <span>Local lock held until {formatDate(lock.expires_at)}</span>
               <code>{receipt.plan_hash}</code>
+            </div>
+          ) : null}
+
+          {receipt && lock ? (
+            <div className="execution-box">
+              <div>
+                <strong>Execute the pinned user-scope plan</strong>
+                <span>
+                  Real machine mutation. Requires explicit version, architecture, user scope,
+                  fresh provider evidence, the active lock, and this one-time receipt.
+                </span>
+              </div>
+              <code>{receipt.execution_confirmation}</code>
+              <div className="approval-controls">
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() => void copyExecutionPhrase()}
+                >
+                  Copy execution phrase
+                </button>
+                <input
+                  value={executionConfirmation}
+                  onChange={(event) => setExecutionConfirmation(event.target.value)}
+                  placeholder="Paste the exact execution phrase"
+                  aria-label="Execution phrase"
+                />
+                <button
+                  type="button"
+                  onClick={() => void execute()}
+                  disabled={
+                    disabled ||
+                    state === "loading" ||
+                    !executionConfirmation.trim() ||
+                    plan.selector.scope !== "user" ||
+                    !plan.selector.version ||
+                    !plan.selector.architecture
+                  }
+                >
+                  Execute approved install
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {execution ? (
+            <div className="execution-result">
+              <strong>{execution.status}</strong>
+              <span>{execution.verification_claim}</span>
+              <span>Exit code: {execution.process_evidence.exit_code ?? "Unavailable"}</span>
+              <span>Duration: {execution.process_evidence.duration_ms} ms</span>
+              <pre>
+                {execution.process_evidence.stdout ||
+                  execution.process_evidence.stderr ||
+                  "No provider output was captured."}
+              </pre>
             </div>
           ) : null}
 

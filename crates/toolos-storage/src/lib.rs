@@ -97,6 +97,10 @@ pub enum StorageError {
     PlanHashMismatch,
     #[error("approval phrase mismatch")]
     ApprovalPhraseMismatch,
+    #[error("approval receipt not found: {0}")]
+    ApprovalNotFound(String),
+    #[error("approval receipt expired: {0}")]
+    ApprovalExpired(String),
     #[error("action plan is not awaiting approval: {0}")]
     PlanNotApprovable(String),
     #[error("resource lock {resource_key} is held by plan {holder_plan_id} until {expires_at}")]
@@ -148,6 +152,24 @@ pub struct ActionPlanApproval<'a> {
     pub receipt: &'a StoredApprovalReceipt,
     pub lock: &'a StoredResourceLock,
     pub now: DateTime<Utc>,
+}
+
+#[derive(Debug)]
+pub struct ActionExecutionStart<'a> {
+    pub plan_id: Uuid,
+    pub approval_id: Uuid,
+    pub expected_hash: &'a str,
+    pub updated_plan_json: &'a str,
+    pub now: DateTime<Utc>,
+    pub lock_expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug)]
+pub struct ActionExecutionFinish<'a> {
+    pub plan_id: Uuid,
+    pub final_status: &'a str,
+    pub updated_plan_json: &'a str,
+    pub resource_key: &'a str,
 }
 
 #[derive(Debug, Clone)]
@@ -440,6 +462,183 @@ impl Storage {
                 receipt.resource_key,
                 receipt.record_json,
             ],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn get_approval_receipt(
+        &self,
+        approval_id: Uuid,
+    ) -> Result<Option<StoredApprovalReceipt>, StorageError> {
+        let connection = self.open_connection()?;
+        let row = connection
+            .query_row(
+                "SELECT plan_id, plan_hash, approved_at, expires_at, resource_key, record_json
+                 FROM approval_receipt WHERE id = ?1",
+                [approval_id.to_string()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                    ))
+                },
+            )
+            .optional()?;
+        row.map(
+            |(plan_id, plan_hash, approved_at, expires_at, resource_key, record_json)| {
+                Ok(StoredApprovalReceipt {
+                    id: approval_id,
+                    plan_id: Uuid::parse_str(&plan_id)?,
+                    plan_hash,
+                    approved_at: DateTime::parse_from_rfc3339(&approved_at)?.with_timezone(&Utc),
+                    expires_at: DateTime::parse_from_rfc3339(&expires_at)?.with_timezone(&Utc),
+                    resource_key,
+                    record_json,
+                })
+            },
+        )
+        .transpose()
+    }
+
+    pub fn begin_action_execution(
+        &self,
+        execution: &ActionExecutionStart<'_>,
+    ) -> Result<(), StorageError> {
+        let mut connection = self.open_connection()?;
+        connection.set_transaction_behavior(TransactionBehavior::Immediate);
+        let transaction = connection.transaction()?;
+        let plan = transaction
+            .query_row(
+                "SELECT status, plan_hash, expires_at, resource_key FROM action_plan WHERE id = ?1",
+                [execution.plan_id.to_string()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| StorageError::PlanNotFound(execution.plan_id.to_string()))?;
+        let (status, plan_hash, plan_expires_at, resource_key) = plan;
+        let plan_expires_at = DateTime::parse_from_rfc3339(&plan_expires_at)?.with_timezone(&Utc);
+        if execution.now >= plan_expires_at {
+            return Err(StorageError::PlanExpired(execution.plan_id.to_string()));
+        }
+        if status != "APPROVED_EXECUTION_DISABLED" {
+            return Err(StorageError::PlanNotApprovable(status));
+        }
+        if plan_hash != execution.expected_hash {
+            return Err(StorageError::PlanHashMismatch);
+        }
+
+        let receipt = transaction
+            .query_row(
+                "SELECT plan_id, plan_hash, expires_at, resource_key FROM approval_receipt WHERE id = ?1",
+                [execution.approval_id.to_string()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| StorageError::ApprovalNotFound(execution.approval_id.to_string()))?;
+        let (receipt_plan_id, receipt_hash, receipt_expires_at, receipt_resource_key) = receipt;
+        let receipt_expires_at =
+            DateTime::parse_from_rfc3339(&receipt_expires_at)?.with_timezone(&Utc);
+        if execution.now >= receipt_expires_at {
+            return Err(StorageError::ApprovalExpired(
+                execution.approval_id.to_string(),
+            ));
+        }
+        if receipt_plan_id != execution.plan_id.to_string()
+            || receipt_hash != execution.expected_hash
+            || receipt_resource_key != resource_key
+        {
+            return Err(StorageError::PlanHashMismatch);
+        }
+
+        let lock = transaction
+            .query_row(
+                "SELECT holder_plan_id, expires_at FROM resource_lock WHERE resource_key = ?1",
+                [&resource_key],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?
+            .ok_or_else(|| StorageError::ResourceLocked {
+                resource_key: resource_key.clone(),
+                holder_plan_id: "none".to_owned(),
+                expires_at: execution.now.to_rfc3339(),
+            })?;
+        let (holder_plan_id, lock_expires_at) = lock;
+        let parsed_lock_expiry =
+            DateTime::parse_from_rfc3339(&lock_expires_at)?.with_timezone(&Utc);
+        if holder_plan_id != execution.plan_id.to_string() || parsed_lock_expiry <= execution.now {
+            return Err(StorageError::ResourceLocked {
+                resource_key,
+                holder_plan_id,
+                expires_at: lock_expires_at,
+            });
+        }
+
+        transaction.execute(
+            "UPDATE action_plan SET status = 'EXECUTING', record_json = ?1 WHERE id = ?2",
+            params![execution.updated_plan_json, execution.plan_id.to_string()],
+        )?;
+        transaction.execute(
+            "UPDATE approval_receipt SET expires_at = ?1 WHERE id = ?2",
+            params![
+                execution.now.to_rfc3339(),
+                execution.approval_id.to_string()
+            ],
+        )?;
+        transaction.execute(
+            "UPDATE resource_lock SET expires_at = ?1 WHERE resource_key = ?2 AND holder_plan_id = ?3",
+            params![
+                execution.lock_expires_at.to_rfc3339(),
+                receipt_resource_key,
+                execution.plan_id.to_string()
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn finish_action_execution(
+        &self,
+        execution: &ActionExecutionFinish<'_>,
+    ) -> Result<(), StorageError> {
+        let mut connection = self.open_connection()?;
+        connection.set_transaction_behavior(TransactionBehavior::Immediate);
+        let transaction = connection.transaction()?;
+        let updated = transaction.execute(
+            "UPDATE action_plan SET status = ?1, record_json = ?2
+             WHERE id = ?3 AND status = 'EXECUTING'",
+            params![
+                execution.final_status,
+                execution.updated_plan_json,
+                execution.plan_id.to_string()
+            ],
+        )?;
+        if updated != 1 {
+            return Err(StorageError::PlanNotApprovable(
+                "execution completion requires EXECUTING state".to_owned(),
+            ));
+        }
+        transaction.execute(
+            "DELETE FROM resource_lock WHERE resource_key = ?1 AND holder_plan_id = ?2",
+            params![execution.resource_key, execution.plan_id.to_string()],
         )?;
         transaction.commit()?;
         Ok(())

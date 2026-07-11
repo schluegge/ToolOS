@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
@@ -12,10 +12,13 @@ use toolos_domain::{
     EvidenceKind, EvidenceRecord, HealthReport, ProjectInspectParams, RpcRequest, RpcResponse,
 };
 use toolos_storage::{
-    ActionPlanApproval, Storage, StoredActionPlan, StoredApprovalReceipt, StoredResourceLock,
+    ActionExecutionFinish, ActionExecutionStart, ActionPlanApproval, Storage, StoredActionPlan,
+    StoredApprovalReceipt, StoredResourceLock,
 };
 use toolos_winget::{
-    build_approval_receipt, build_install_plan, InstallPlanStatus, WingetInstallPlan,
+    build_approval_receipt, build_execution_report, build_install_plan, validate_execution_request,
+    InstallPlanStatus, PackageScope, ProcessEvidence, WingetExecutionStatus,
+    WingetInstallApprovalReceipt, WingetInstallExecutionRequest, WingetInstallPlan,
     WingetInstalledStateReport, WingetResolutionReport,
 };
 use tracing::{error, info, instrument};
@@ -128,6 +131,7 @@ async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> any
         "winget.install.plan" => winget_install_plan(state, trace_id, &request.params).await,
         "winget.install.plan.get" => winget_install_plan_get(state, &request.params),
         "winget.install.approve" => winget_install_approve(state, trace_id, &request.params),
+        "winget.install.execute" => winget_install_execute(state, trace_id, &request.params).await,
         "winget.install.lock" => winget_install_lock(state),
         "evidence.list" => {
             let limit = bounded_limit(&request.params, 50);
@@ -405,7 +409,7 @@ fn winget_install_approve(
     approved_plan.status = InstallPlanStatus::ApprovedExecutionDisabled;
     approved_plan.approval_challenge = None;
     approved_plan.single_safest_next_action =
-        "Execution remains disabled. A future execution slice must revalidate identity, installed state, approval expiry, lock ownership, elevation, and agreements."
+        "Execution remains disabled until the separate receipt-bound execution phrase is confirmed. Only exact, pinned, user-scope plans can execute."
             .to_owned();
     let updated_plan_json = serde_json::to_string(&approved_plan)?;
     let stored_receipt = StoredApprovalReceipt {
@@ -464,6 +468,268 @@ fn winget_install_approve(
         "lock": lock,
         "evidence": evidence
     }))
+}
+
+async fn winget_install_execute(
+    state: &AppState,
+    trace_id: Uuid,
+    params: &Value,
+) -> anyhow::Result<Value> {
+    let plan_id = required_uuid(params, "plan_id", "winget.install.execute")?;
+    let approval_id = required_uuid(params, "approval_id", "winget.install.execute")?;
+    let confirmation = required_string(params, "confirmation", "winget.install.execute")?;
+    let stored_plan = state
+        .storage
+        .get_action_plan(plan_id)?
+        .with_context(|| format!("install plan not found: {plan_id}"))?;
+    let mut plan: WingetInstallPlan = serde_json::from_str(&stored_plan.record_json)?;
+    let stored_receipt = state
+        .storage
+        .get_approval_receipt(approval_id)?
+        .with_context(|| format!("approval receipt not found: {approval_id}"))?;
+    let receipt: WingetInstallApprovalReceipt = serde_json::from_str(&stored_receipt.record_json)?;
+    let now = Utc::now();
+    let lock = state
+        .storage
+        .get_resource_lock(&plan.lock_key, now)?
+        .context("the approved WinGet lock is absent or expired")?;
+
+    validate_execution_authorization(
+        &plan,
+        &receipt,
+        &lock,
+        &confirmation,
+        &stored_plan.plan_hash,
+        now,
+    )?;
+
+    let selector_json = serde_json::to_value(&plan.selector)?;
+    let resolution_result = winget_resolve(state, trace_id, &selector_json).await?;
+    let installed_result = winget_installed(state, trace_id, &selector_json).await?;
+    let preflight_resolution: WingetResolutionReport = serde_json::from_value(
+        resolution_result
+            .get("snapshot")
+            .cloned()
+            .context("preflight resolution result had no snapshot")?,
+    )?;
+    let preflight_installed_state: WingetInstalledStateReport = serde_json::from_value(
+        installed_result
+            .get("snapshot")
+            .cloned()
+            .context("preflight installed-state result had no snapshot")?,
+    )?;
+    validate_fresh_preflight(&plan, &preflight_resolution, &preflight_installed_state)?;
+
+    let request = WingetInstallExecutionRequest {
+        plan_id,
+        plan_hash: plan.plan_hash.clone(),
+        selector: plan.selector.clone(),
+        expected_command: plan.install_preview.clone(),
+    };
+    let command = validate_execution_request(&request).map_err(anyhow::Error::msg)?;
+    let execution_id = Uuid::new_v4();
+    let started_at = Utc::now();
+    plan.status = InstallPlanStatus::Executing;
+    plan.single_safest_next_action =
+        "WinGet execution is in progress. Do not start another package-manager operation."
+            .to_owned();
+    let executing_plan_json = serde_json::to_string(&plan)?;
+    state
+        .storage
+        .begin_action_execution(&ActionExecutionStart {
+            plan_id,
+            approval_id,
+            expected_hash: &plan.plan_hash,
+            updated_plan_json: &executing_plan_json,
+            now: started_at,
+            lock_expires_at: started_at + ChronoDuration::minutes(32),
+        })?;
+    state.storage.append_event(
+        trace_id,
+        "winget.install.execution.started",
+        &json!({
+            "execution_id": execution_id,
+            "plan_id": plan_id,
+            "approval_id": approval_id,
+            "plan_hash": plan.plan_hash,
+            "command": command,
+            "agreements_accepted": false,
+            "elevation_requested": false
+        }),
+    )?;
+
+    let process_evidence = match invoke_adapter(
+        &state.winget_adapter_path,
+        "winget.install.execute",
+        serde_json::to_value(&request)?,
+        Duration::from_secs(31 * 60),
+    )
+    .await
+    {
+        Ok(payload) => serde_json::from_value::<ProcessEvidence>(payload)?,
+        Err(error) => ProcessEvidence {
+            executable: command.executable.clone(),
+            args: command.args.clone(),
+            exit_code: None,
+            stdout: String::new(),
+            stderr: format!("ToolOS adapter invocation failed: {error}"),
+            timed_out: false,
+            duration_ms: 0,
+        },
+    };
+
+    let post_install_state = match winget_installed(state, trace_id, &selector_json).await {
+        Ok(value) => value
+            .get("snapshot")
+            .cloned()
+            .map(serde_json::from_value::<WingetInstalledStateReport>)
+            .transpose()?,
+        Err(error) => {
+            state.storage.append_event(
+                trace_id,
+                "winget.install.post_state.failed",
+                &json!({"execution_id": execution_id, "error": error.to_string()}),
+            )?;
+            None
+        }
+    };
+    let completed_at = Utc::now();
+    let report = build_execution_report(
+        execution_id,
+        plan_id,
+        approval_id,
+        plan.plan_hash.clone(),
+        plan.selector.clone(),
+        command,
+        started_at,
+        completed_at,
+        process_evidence,
+        preflight_resolution,
+        preflight_installed_state,
+        post_install_state,
+    );
+    plan.status = match report.status {
+        WingetExecutionStatus::ProviderSucceededPostStateUnverified => {
+            InstallPlanStatus::ExecutionSucceededUnverified
+        }
+        WingetExecutionStatus::ProviderFailed | WingetExecutionStatus::TimedOut => {
+            InstallPlanStatus::ExecutionFailed
+        }
+    };
+    plan.single_safest_next_action = report.single_safest_next_action.clone();
+    let final_status = install_plan_status(&plan.status);
+    let final_plan_json = serde_json::to_string(&plan)?;
+    let evidence = EvidenceRecord::new(
+        trace_id,
+        EvidenceKind::AdapterInvocation,
+        format!("winget-execution:{execution_id}"),
+        format!(
+            "Governed WinGet execution completed with status {}",
+            execution_status(&report.status)
+        ),
+        "toolos.adapter.winget",
+        serde_json::to_value(&report)?,
+        report.limitations.clone(),
+    )?;
+    record_evidence(state, trace_id, &evidence, "WINGET_INSTALL_EXECUTION")?;
+    state
+        .storage
+        .finish_action_execution(&ActionExecutionFinish {
+            plan_id,
+            final_status,
+            updated_plan_json: &final_plan_json,
+            resource_key: &plan.lock_key,
+        })?;
+    state.storage.append_event(
+        trace_id,
+        "winget.install.execution.completed",
+        &json!({
+            "execution_id": execution_id,
+            "plan_id": plan_id,
+            "status": execution_status(&report.status),
+            "exit_code": report.process_evidence.exit_code,
+            "timed_out": report.process_evidence.timed_out,
+            "post_state_captured": report.post_install_state.is_some()
+        }),
+    )?;
+    Ok(json!({"plan": plan, "report": report, "evidence": evidence}))
+}
+
+fn validate_execution_authorization(
+    plan: &WingetInstallPlan,
+    receipt: &WingetInstallApprovalReceipt,
+    lock: &StoredResourceLock,
+    confirmation: &str,
+    stored_hash: &str,
+    now: DateTime<Utc>,
+) -> anyhow::Result<()> {
+    if plan.status != InstallPlanStatus::ApprovedExecutionDisabled {
+        return Err(anyhow!(
+            "install plan is not approved for a separate execution step"
+        ));
+    }
+    if now >= plan.expires_at || now >= receipt.expires_at {
+        return Err(anyhow!("install plan or approval receipt expired"));
+    }
+    if plan.plan_hash != stored_hash
+        || receipt.plan_hash != plan.plan_hash
+        || receipt.plan_id != plan.plan_id
+    {
+        return Err(anyhow!(
+            "plan, stored hash, and approval receipt do not match"
+        ));
+    }
+    if confirmation.trim() != receipt.execution_confirmation {
+        return Err(anyhow!(
+            "execution phrase does not match the approval receipt"
+        ));
+    }
+    if lock.holder_plan_id != plan.plan_id || lock.resource_key != plan.lock_key {
+        return Err(anyhow!("WinGet lock is not held by this plan"));
+    }
+    if plan.selector.scope != Some(PackageScope::User) {
+        return Err(anyhow!("execution is restricted to explicit user scope"));
+    }
+    if plan.selector.version.is_none() || plan.selector.architecture.is_none() {
+        return Err(anyhow!(
+            "execution requires explicit version and architecture pins; create a new plan"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_fresh_preflight(
+    plan: &WingetInstallPlan,
+    resolution: &WingetResolutionReport,
+    installed_state: &WingetInstalledStateReport,
+) -> anyhow::Result<()> {
+    if resolution.status != toolos_winget::ResolutionStatus::ResolvedExact {
+        return Err(anyhow!("fresh exact package resolution failed"));
+    }
+    if installed_state.status != toolos_winget::InstalledQueryStatus::QueryCompleted {
+        return Err(anyhow!("fresh installed-state query failed"));
+    }
+    if resolution.selector != plan.selector || installed_state.selector != plan.selector {
+        return Err(anyhow!(
+            "fresh provider selectors differ from the immutable plan"
+        ));
+    }
+    if resolution.install_preview != plan.install_preview {
+        return Err(anyhow!(
+            "fresh derived install command differs from the immutable plan"
+        ));
+    }
+    if resolution.provider_version != plan.resolution.provider_version {
+        return Err(anyhow!(
+            "WinGet provider version changed after planning; create a new plan"
+        ));
+    }
+    if installed_state.definitive_installed_match == Some(true) {
+        return Err(anyhow!(
+            "the exact package is already installed according to definitive evidence"
+        ));
+    }
+    Ok(())
 }
 
 fn winget_install_lock(state: &AppState) -> anyhow::Result<Value> {
@@ -555,7 +821,7 @@ fn capabilities() -> Value {
             "capability_id": "package.install.execute.winget",
             "provider_id": "toolos.adapter.winget",
             "blast_radius": "USER_PROFILE_WRITE_OR_MACHINE_WRITE",
-            "status": "DISABLED"
+            "status": "IMPLEMENTED_USER_SCOPE_PINNED"
         },
         {
             "capability_id": "package.preview.install",
@@ -629,7 +895,20 @@ fn install_plan_status(status: &InstallPlanStatus) -> &'static str {
         InstallPlanStatus::AwaitingApproval => "AWAITING_APPROVAL",
         InstallPlanStatus::Blocked => "BLOCKED",
         InstallPlanStatus::ApprovedExecutionDisabled => "APPROVED_EXECUTION_DISABLED",
+        InstallPlanStatus::Executing => "EXECUTING",
+        InstallPlanStatus::ExecutionSucceededUnverified => "EXECUTION_SUCCEEDED_UNVERIFIED",
+        InstallPlanStatus::ExecutionFailed => "EXECUTION_FAILED",
         InstallPlanStatus::Expired => "EXPIRED",
+    }
+}
+
+fn execution_status(status: &WingetExecutionStatus) -> &'static str {
+    match status {
+        WingetExecutionStatus::ProviderSucceededPostStateUnverified => {
+            "PROVIDER_SUCCEEDED_POST_STATE_UNVERIFIED"
+        }
+        WingetExecutionStatus::ProviderFailed => "PROVIDER_FAILED",
+        WingetExecutionStatus::TimedOut => "TIMED_OUT",
     }
 }
 
@@ -770,7 +1049,7 @@ mod tests {
     }
 
     #[test]
-    fn capabilities_include_governed_install_plan_but_disable_execution() {
+    fn capabilities_include_governed_install_plan_and_pinned_user_execution() {
         let values = capabilities()
             .as_array()
             .expect("capabilities array")
@@ -783,7 +1062,8 @@ mod tests {
         assert!(values.iter().any(|value| {
             value.get("capability_id").and_then(Value::as_str)
                 == Some("package.install.execute.winget")
-                && value.get("status").and_then(Value::as_str) == Some("DISABLED")
+                && value.get("status").and_then(Value::as_str)
+                    == Some("IMPLEMENTED_USER_SCOPE_PINNED")
         }));
     }
 

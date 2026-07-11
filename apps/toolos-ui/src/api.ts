@@ -148,7 +148,14 @@ export type ApprovalChallenge = {
 export type WingetInstallPlan = {
   plan_id: string;
   plan_hash: string;
-  status: "AWAITING_APPROVAL" | "BLOCKED" | "APPROVED_EXECUTION_DISABLED" | "EXPIRED";
+  status:
+    | "AWAITING_APPROVAL"
+    | "BLOCKED"
+    | "APPROVED_EXECUTION_DISABLED"
+    | "EXECUTING"
+    | "EXECUTION_SUCCEEDED_UNVERIFIED"
+    | "EXECUTION_FAILED"
+    | "EXPIRED";
   selector: WingetPackageSelector;
   resolution: WingetResolutionReport;
   installed_state: WingetInstalledStateReport;
@@ -178,7 +185,33 @@ export type WingetInstallApprovalReceipt = {
   lock_expires_at: string;
   status: "APPROVED_EXECUTION_DISABLED";
   execution_enabled: false;
+  execution_confirmation: string;
   limitations: string[];
+};
+
+export type WingetExecutionStatus =
+  | "PROVIDER_SUCCEEDED_POST_STATE_UNVERIFIED"
+  | "PROVIDER_FAILED"
+  | "TIMED_OUT";
+
+export type WingetInstallExecutionReport = {
+  execution_id: string;
+  plan_id: string;
+  approval_id: string;
+  plan_hash: string;
+  status: WingetExecutionStatus;
+  selector: WingetPackageSelector;
+  command: CommandPreview;
+  started_at: string;
+  completed_at: string;
+  process_evidence: ProcessEvidence;
+  preflight_resolution: WingetResolutionReport;
+  preflight_installed_state: WingetInstalledStateReport;
+  post_install_state: WingetInstalledStateReport | null;
+  execution_attempted: boolean;
+  verification_claim: string;
+  limitations: string[];
+  single_safest_next_action: string;
 };
 
 export type ResourceLock = {
@@ -192,6 +225,12 @@ export type WingetApprovalResult = {
   plan: WingetInstallPlan;
   receipt: WingetInstallApprovalReceipt;
   lock: ResourceLock;
+  evidence: EvidenceRecord;
+};
+
+export type WingetExecutionResult = {
+  plan: WingetInstallPlan;
+  report: WingetInstallExecutionReport;
   evidence: EvidenceRecord;
 };
 
@@ -248,6 +287,16 @@ export const api = {
     daemonRequest<WingetApprovalResult>("winget.install.approve", {
       plan_id: planId,
       plan_hash: planHash,
+      confirmation,
+    }),
+  executeWingetInstallPlan: (
+    planId: string,
+    approvalId: string,
+    confirmation: string,
+  ) =>
+    daemonRequest<WingetExecutionResult>("winget.install.execute", {
+      plan_id: planId,
+      approval_id: approvalId,
       confirmation,
     }),
   getWingetInstallPlan: (planId: string) =>

@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+mod execution;
+pub use execution::*;
+
 const MAX_SELECTOR_LENGTH: usize = 512;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -100,6 +103,9 @@ pub enum InstallPlanStatus {
     AwaitingApproval,
     Blocked,
     ApprovedExecutionDisabled,
+    Executing,
+    ExecutionSucceededUnverified,
+    ExecutionFailed,
     Expired,
 }
 
@@ -144,6 +150,7 @@ pub struct WingetInstallApprovalReceipt {
     pub lock_expires_at: DateTime<Utc>,
     pub status: InstallPlanStatus,
     pub execution_enabled: bool,
+    pub execution_confirmation: String,
     pub limitations: Vec<String>,
 }
 
@@ -292,6 +299,10 @@ pub fn build_approval_receipt(
         lock_expires_at: expires_at,
         status: InstallPlanStatus::ApprovedExecutionDisabled,
         execution_enabled: false,
+        execution_confirmation: execution_confirmation(
+            &plan.selector.package_id,
+            &plan.plan_hash,
+        )?,
         limitations: vec![
             "This receipt authorizes only the immutable plan hash during its short validity window."
                 .to_owned(),
@@ -375,6 +386,7 @@ pub fn install_preview(selector: &PackageSelector) -> CommandPreview {
         "--exact".to_owned(),
         "--source".to_owned(),
         selector.source.clone(),
+        "--no-upgrade".to_owned(),
         "--disable-interactivity".to_owned(),
     ];
     append_install_filters(&mut args, selector);

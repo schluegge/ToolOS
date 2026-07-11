@@ -85,6 +85,15 @@ enum Command {
         #[arg(long)]
         confirmation: String,
     },
+    /// Execute one approved, version-pinned, architecture-pinned user-scope plan.
+    WingetInstallExecute {
+        #[arg(long)]
+        plan_id: String,
+        #[arg(long)]
+        approval_id: String,
+        #[arg(long)]
+        confirmation: String,
+    },
     /// Show the current ToolOS WinGet package-manager lock.
     WingetInstallLock,
     /// Get one persisted install plan by UUID.
@@ -171,6 +180,18 @@ async fn main() -> anyhow::Result<()> {
             json!({
                 "plan_id": plan_id,
                 "plan_hash": plan_hash,
+                "confirmation": confirmation
+            }),
+        ),
+        Command::WingetInstallExecute {
+            plan_id,
+            approval_id,
+            confirmation,
+        } => (
+            "winget.install.execute".to_owned(),
+            json!({
+                "plan_id": plan_id,
+                "approval_id": approval_id,
                 "confirmation": confirmation
             }),
         ),
@@ -293,6 +314,22 @@ mod tests {
         ])
         .expect("parse approval");
         assert!(matches!(cli.command, Command::WingetInstallApprove { .. }));
+    }
+
+    #[test]
+    fn clap_parses_governed_install_execution() {
+        let cli = Cli::try_parse_from([
+            "toolos",
+            "winget-install-execute",
+            "--plan-id",
+            "00000000-0000-0000-0000-000000000001",
+            "--approval-id",
+            "00000000-0000-0000-0000-000000000002",
+            "--confirmation",
+            "EXECUTE INSTALL Git.Git abcdef123456",
+        ])
+        .expect("parse execution");
+        assert!(matches!(cli.command, Command::WingetInstallExecute { .. }));
     }
 
     #[test]

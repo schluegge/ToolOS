@@ -56,6 +56,8 @@ cargo run -p toolos-cli -- winget-installed --id Git.Git --source winget --scope
 cargo run -p toolos-cli -- winget-install-plan --id Git.Git --source winget --scope user --architecture x64
 # Then approve only the exact plan/hash/phrase returned by the previous command:
 cargo run -p toolos-cli -- winget-install-approve --plan-id <UUID> --plan-hash <SHA256> --confirmation "<EXACT PHRASE>"
+# Execution is restricted to explicit user scope plus pinned version and architecture:
+cargo run -p toolos-cli -- winget-install-execute --plan-id <UUID> --approval-id <UUID> --confirmation "<EXACT EXECUTION PHRASE>"
 cargo run -p toolos-cli -- evidence
 ```
 
@@ -79,4 +81,4 @@ See:
 
 ## Safety boundary
 
-The current release permits read-only observations plus local plan, approval-receipt, and lock metadata. No installation, extraction, deletion, agreement acceptance, elevation, billing, credential extraction, browser stealth, CAPTCHA bypass, or arbitrary repository execution is implemented.
+The current release permits read-only observations, governed metadata, and one narrow executable slice: an exact version-pinned, architecture-pinned, user-scope WinGet install after fresh revalidation and two separate short-lived confirmations. ToolOS never auto-accepts agreements, requests elevation, adds installer overrides, bypasses hashes, forces execution, skips dependencies, or claims application health from an exit code. Extraction, deletion, billing, credential extraction, browser stealth, CAPTCHA bypass, machine-scope installation, and arbitrary repository execution remain unimplemented.

@@ -8,8 +8,9 @@ use tokio::process::Command;
 use toolos_domain::{RpcRequest, RpcResponse, ADAPTER_PROTOCOL_VERSION};
 use toolos_winget::{
     identity_probe, install_preview, installed_probe, normalize_selector, uninstall_preview,
-    version_probe, InstalledQueryStatus, PackageSelector, ProcessEvidence, ResolutionStatus,
-    WingetInstalledStateReport, WingetResolutionReport,
+    validate_execution_request, version_probe, InstalledQueryStatus, PackageSelector,
+    ProcessEvidence, ResolutionStatus, WingetInstallExecutionRequest, WingetInstalledStateReport,
+    WingetResolutionReport,
 };
 
 const MAX_CAPTURE_BYTES: usize = 64 * 1024;
@@ -49,6 +50,7 @@ async fn handle_request(request: RpcRequest) -> RpcResponse {
         "adapter.health" => adapter_health().await,
         "winget.resolve" => resolve_request(request.params.clone()).await,
         "winget.installed" => installed_request(request.params.clone()).await,
+        "winget.install.execute" => execute_install_request(request.params.clone()).await,
         _ => Err(format!("unknown adapter method: {}", request.method)),
     };
 
@@ -72,7 +74,8 @@ async fn adapter_health() -> Result<Value, String> {
                 "package.resolve.winget",
                 "package.installed.query.winget",
                 "package.preview.install",
-                "package.preview.uninstall"
+                "package.preview.uninstall",
+                "package.install.execute.winget.user"
             ]
         })),
         Err(error) => Ok(json!({
@@ -206,6 +209,19 @@ async fn installed_request(params: Value) -> Result<Value, String> {
     };
 
     serde_json::to_value(report).map_err(|error| error.to_string())
+}
+
+async fn execute_install_request(params: Value) -> Result<Value, String> {
+    let request = serde_json::from_value::<WingetInstallExecutionRequest>(params)
+        .map_err(|error| format!("winget.install.execute requires a valid request: {error}"))?;
+    let command = validate_execution_request(&request)?;
+    let evidence = run_command(
+        &command.executable,
+        &command.args,
+        Duration::from_secs(30 * 60),
+    )
+    .await?;
+    serde_json::to_value(evidence).map_err(|error| error.to_string())
 }
 
 fn parse_selector(params: Value, method: &str) -> Result<PackageSelector, String> {
