@@ -1,32 +1,26 @@
-# one-time formatter trigger; removed after the formatter commit
-name: apply-durable-action-rustfmt-once
+name: capture-durable-action-rustfmt
 
 on:
-  push:
-    branches: ["feature/winget-durable-approvals"]
+  pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-rustfmt:
+  rustfmt:
+    name: Capture rustfmt patch
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref_name }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - run: cargo fmt --all
-      - name: Commit formatter output when required
-        shell: bash
+      - name: Generate formatter patch
         run: |
-          if git diff --quiet; then
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- '*.rs'
-          git commit -m "style: apply rustfmt to durable action plans"
-          git push origin HEAD:${{ github.ref_name }}
+          cargo fmt --all
+          git diff --binary > rustfmt.patch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: durable-action-rustfmt
+          path: rustfmt.patch
+          if-no-files-found: error
