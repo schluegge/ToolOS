@@ -70,6 +70,28 @@ pub struct WingetResolutionReport {
     pub single_safest_next_action: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum InstalledQueryStatus {
+    QueryCompleted,
+    Blocked,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct WingetInstalledStateReport {
+    pub provider_id: String,
+    pub provider_version: Option<String>,
+    pub status: InstalledQueryStatus,
+    pub selector: PackageSelector,
+    pub installed_probe: CommandPreview,
+    pub installed_evidence: Option<ProcessEvidence>,
+    pub observed_at: DateTime<Utc>,
+    pub definitive_installed_match: Option<bool>,
+    pub limitations: Vec<String>,
+    pub single_safest_next_action: String,
+}
+
 pub fn normalize_selector(selector: PackageSelector) -> Result<PackageSelector, String> {
     Ok(PackageSelector {
         package_id: validate_token("package_id", selector.package_id)?,
@@ -103,6 +125,31 @@ pub fn identity_probe(selector: &PackageSelector) -> CommandPreview {
         vec![
             "Queries the selected WinGet source for one exact package identity.".to_owned(),
             "May contact the configured package source over the network.".to_owned(),
+        ],
+        Vec::new(),
+    )
+}
+
+pub fn installed_probe(selector: &PackageSelector) -> CommandPreview {
+    let mut args = vec![
+        "list".to_owned(),
+        "--id".to_owned(),
+        selector.package_id.clone(),
+        "--exact".to_owned(),
+        "--source".to_owned(),
+        selector.source.clone(),
+        "--disable-interactivity".to_owned(),
+    ];
+    if let Some(scope) = &selector.scope {
+        args.push("--scope".to_owned());
+        args.push(scope_text(scope).to_owned());
+    }
+    preview(
+        args,
+        "READ_ONLY",
+        vec![
+            "Queries WinGet registration data for an installed package matching the exact ID.".to_owned(),
+            "May refresh or contact the configured package source while resolving source metadata.".to_owned(),
         ],
         Vec::new(),
     )
@@ -307,6 +354,29 @@ mod tests {
                 "x64",
             ]
         );
+    }
+
+    #[test]
+    fn installed_probe_uses_only_supported_identity_and_scope_filters() {
+        let command = installed_probe(&selector());
+        assert_eq!(command.blast_radius, "READ_ONLY");
+        assert!(!command.execution_enabled);
+        assert_eq!(
+            command.args,
+            [
+                "list",
+                "--id",
+                "Git.Git",
+                "--exact",
+                "--source",
+                "winget",
+                "--disable-interactivity",
+                "--scope",
+                "user",
+            ]
+        );
+        assert!(!command.args.iter().any(|arg| arg == "--architecture"));
+        assert!(!command.args.iter().any(|arg| arg == "--version"));
     }
 
     #[test]
