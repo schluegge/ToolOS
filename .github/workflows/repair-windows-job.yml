@@ -26,6 +26,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           Remove-Item WINDOWS_JOB_FAILURE.txt -ErrorAction SilentlyContinue
+          python tools/windows-job-hotfix.py
           cargo fmt --all
           $output = @()
           $output += (& cargo clippy -p toolos-windows-job --all-targets -- -D warnings 2>&1 | Out-String)
@@ -41,6 +42,7 @@ jobs:
           git config user.email "toolos-build-bot@users.noreply.github.com"
           if ($exitCode -eq 0) {
             git rm .github/workflows/repair-windows-job.yml
+            git rm tools/windows-job-hotfix.py
             git rm tools/windows-job-repair.marker
             git rm --ignore-unmatch WINDOWS_JOB_FAILURE.txt
           }
