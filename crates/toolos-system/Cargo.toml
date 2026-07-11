@@ -9,6 +9,7 @@ rust-version.workspace = true
 chrono.workspace = true
 serde_json.workspace = true
 toolos-domain = { path = "../toolos-domain" }
+zip.workspace = true
 
 [lints]
 workspace = true
