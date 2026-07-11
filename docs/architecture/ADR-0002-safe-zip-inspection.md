@@ -30,7 +30,7 @@ The inspector:
 
 ## Source-copy evidence ledger
 
-Implementation uses only APIs verified in the current `zip-rs/zip2` source and documentation:
+Implementation uses only APIs verified in the official `zip-rs/zip2` source at commit `c2999bcad2284d7a5ffafc1797f0fbfb5e127964`, whose package manifest identifies version 8.3.1:
 
 | API | Verified behavior used by ToolOS |
 |---|---|
@@ -38,16 +38,16 @@ Implementation uses only APIs verified in the current `zip-rs/zip2` source and d
 | `ZipArchive::len()` | Returns the number of archive entries. |
 | `ZipArchive::by_index(index)` | Reads entry metadata by index. |
 | `ZipArchive::has_overlapping_files()` | Reports compressed data ranges shared by multiple entries. |
-| `ZipFile::name()` | Returns a decoded name and explicitly warns that it may be unsafe for extraction. |
+| `ZipFile::name()` | Returns the decoded entry name and warns that it may be unsafe for extraction. |
 | `ZipFile::enclosed_name()` | Returns a path only when it is enclosed and not absolute or escaping. |
-| `ZipFile::name_raw()` | Allows a bounded placeholder when a name is not valid UTF-8. |
 | `ZipFile::is_dir()` / `is_symlink()` | Classifies directories and symbolic-link entries. |
 | `ZipFile::encrypted()` | Reports encryption metadata without requesting credentials. |
 | `ZipFile::compressed_size()` / `size()` | Supplies declared size metadata. |
 | `ZipFile::compression()` | Supplies the declared compression method. |
 | `ZipFile::unix_mode()` / `crc32()` | Supplies additional entry metadata. |
+| `ZipWriter` / `SimpleFileOptions` | Creates bounded in-test ZIP fixtures without checking fixture binaries into the repository. |
 
-The dependency is pinned through `Cargo.lock`; workspace configuration uses `zip` 9 with only the `deflate` feature enabled.
+Workspace configuration pins `zip = "=8.3.1"`, disables default features, and enables only `deflate`. The workspace Rust minimum is 1.88 because the verified dependency declares Rust 1.88.
 
 ## Decisions and limits
 
