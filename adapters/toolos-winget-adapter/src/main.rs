@@ -1,10 +1,12 @@
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use serde_json::{json, Value};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
+use tokio::sync::Mutex;
 use toolos_domain::{RpcRequest, RpcResponse, ADAPTER_PROTOCOL_VERSION};
 use toolos_winget::{
     identity_probe, install_preview, installed_probe, normalize_selector, uninstall_preview,
@@ -215,12 +217,7 @@ async fn execute_install_request(params: Value) -> Result<Value, String> {
     let request = serde_json::from_value::<WingetInstallExecutionRequest>(params)
         .map_err(|error| format!("winget.install.execute requires a valid request: {error}"))?;
     let command = validate_execution_request(&request)?;
-    let evidence = run_command(
-        &command.executable,
-        &command.args,
-        Duration::from_secs(30 * 60),
-    )
-    .await?;
+    let evidence = run_command_streaming(&command.executable, &command.args).await?;
     serde_json::to_value(evidence).map_err(|error| error.to_string())
 }
 
@@ -240,6 +237,130 @@ fn unavailable_evidence(command: &toolos_winget::CommandPreview, error: String) 
         timed_out: false,
         duration_ms: 0,
     }
+}
+
+#[derive(Debug, Default)]
+struct StreamCapture {
+    bytes: Vec<u8>,
+    truncated: bool,
+}
+
+async fn run_command_streaming(
+    executable: &str,
+    args: &[String],
+) -> Result<ProcessEvidence, String> {
+    let started = Instant::now();
+    let mut child = Command::new(executable)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|error| format!("cannot start {executable}: {error}"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| format!("{executable} stdout pipe is unavailable"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| format!("{executable} stderr pipe is unavailable"))?;
+    let transport = Arc::new(Mutex::new(tokio::io::stderr()));
+
+    let wait = async {
+        child
+            .wait()
+            .await
+            .map_err(|error| format!("failed while waiting for {executable}: {error}"))
+    };
+    let stdout_drain = drain_and_tee(stdout, Arc::clone(&transport), b"[TOOLOS_PROVIDER_STDOUT]");
+    let stderr_drain = drain_and_tee(stderr, transport, b"[TOOLOS_PROVIDER_STDERR]");
+    let (status, stdout, stderr) = tokio::try_join!(wait, stdout_drain, stderr_drain)?;
+
+    Ok(ProcessEvidence {
+        executable: executable.to_owned(),
+        args: args.to_vec(),
+        exit_code: status.code(),
+        stdout: captured_text(&stdout),
+        stderr: captured_text(&stderr),
+        timed_out: false,
+        duration_ms: duration_ms(started.elapsed()),
+    })
+}
+
+async fn drain_and_tee<R>(
+    mut reader: R,
+    transport: Arc<Mutex<tokio::io::Stderr>>,
+    label: &'static [u8],
+) -> Result<StreamCapture, String>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut capture = StreamCapture::default();
+    let mut buffer = [0u8; 8192];
+    let mut header_written = false;
+    let mut truncation_written = false;
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .await
+            .map_err(|error| format!("failed to read provider output: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        let remaining = MAX_CAPTURE_BYTES.saturating_sub(capture.bytes.len());
+        let keep = remaining.min(read);
+        if keep > 0 {
+            capture.bytes.extend_from_slice(&buffer[..keep]);
+            let mut writer = transport.lock().await;
+            if !header_written {
+                let _ = writer
+                    .write_all(
+                        b"
+",
+                    )
+                    .await;
+                let _ = writer.write_all(label).await;
+                let _ = writer
+                    .write_all(
+                        b"
+",
+                    )
+                    .await;
+                header_written = true;
+            }
+            let _ = writer.write_all(&buffer[..keep]).await;
+            let _ = writer.flush().await;
+        }
+        if keep < read {
+            capture.truncated = true;
+            if !truncation_written {
+                let mut writer = transport.lock().await;
+                let _ = writer
+                    .write_all(
+                        b"
+[ToolOS truncated live provider output at 65536 bytes]
+",
+                    )
+                    .await;
+                let _ = writer.flush().await;
+                truncation_written = true;
+            }
+        }
+    }
+    Ok(capture)
+}
+
+fn captured_text(capture: &StreamCapture) -> String {
+    let mut text = String::from_utf8_lossy(&capture.bytes).into_owned();
+    if capture.truncated {
+        text.push_str(
+            "
+[ToolOS truncated provider output at 65536 bytes]",
+        );
+    }
+    text
 }
 
 async fn run_command(
@@ -311,6 +432,17 @@ mod tests {
     fn output_capture_is_bounded() {
         let bytes = vec![b'a'; MAX_CAPTURE_BYTES + 100];
         let text = bounded_text(&bytes);
+        assert!(text.contains("ToolOS truncated provider output"));
+        assert!(text.len() < MAX_CAPTURE_BYTES + 100);
+    }
+
+    #[test]
+    fn captured_stream_records_truncation_without_exceeding_bound() {
+        let capture = StreamCapture {
+            bytes: vec![b'a'; MAX_CAPTURE_BYTES],
+            truncated: true,
+        };
+        let text = captured_text(&capture);
         assert!(text.contains("ToolOS truncated provider output"));
         assert!(text.len() < MAX_CAPTURE_BYTES + 100);
     }

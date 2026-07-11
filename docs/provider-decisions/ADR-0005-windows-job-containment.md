@@ -21,7 +21,7 @@ For every mutable Windows provider invocation ToolOS:
 3. creates stdin, stdout, and stderr pipes with only the child ends inheritable;
 4. supplies those handles through `PROC_THREAD_ATTRIBUTE_HANDLE_LIST`;
 5. supplies the Job Object through `PROC_THREAD_ATTRIBUTE_JOB_LIST` so the root process is assigned during `CreateProcessW`, not after launch;
-6. captures bounded transport output while the process tree runs;
+6. live-tees bounded WinGet stdout and stderr through the adapter's stderr transport while also retaining them for a normal JSON result;
 7. distinguishes normal exit, timeout, explicit cancellation, daemon shutdown, descendants outliving the root, and containment failure;
 8. uses `TerminateJobObject` for timeout or cancellation;
 9. queries `JobObjectBasicAccountingInformation` and requires `ActiveProcesses == 0` before claiming that termination completed.
@@ -54,7 +54,7 @@ The Windows CI fixture starts a parent process that launches a nested child. Tes
 - daemon-shutdown cancellation is represented separately and terminates the nested child;
 - dropping the final Job Object owner prevents the nested child from surviving.
 
-The test fails when the nested child survives long enough to write its survivor marker.
+The test fails when the nested child survives long enough to write its survivor marker. The executing adapter additionally live-tees bounded provider output, so observations emitted before forced termination remain available even when the adapter cannot return its final JSON response.
 
 ## Remaining boundary
 
