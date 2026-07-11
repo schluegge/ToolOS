@@ -9,6 +9,7 @@ import {
   type WingetResolutionReport,
 } from "./api";
 import "./winget.css";
+import "./action-plan.css";
 
 type Props = {
   disabled?: boolean;
