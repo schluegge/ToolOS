@@ -1,3 +1,4 @@
+# one-time formatter trigger; removed after the formatter commit
 name: apply-durable-action-rustfmt-once
 
 on:
