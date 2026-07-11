@@ -173,6 +173,40 @@ async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> any
             )?;
             Ok(json!({"snapshot": payload, "evidence": evidence}))
         }
+        "archive.inspect" => {
+            let path = required_path(&request.params, "archive.inspect")?;
+            let payload = invoke_adapter(
+                &state.adapter_path,
+                "archive.inspect",
+                json!({"path": path}),
+            )
+            .await?;
+            let scope = payload
+                .get("canonical_path")
+                .and_then(Value::as_str)
+                .unwrap_or("selected-archive")
+                .to_owned();
+            let evidence = EvidenceRecord::new(
+                trace_id,
+                EvidenceKind::AdapterInvocation,
+                scope,
+                "Selected ZIP structure and extraction paths were inspected without extraction",
+                "toolos.adapter.system",
+                payload.clone(),
+                vec![
+                    "The archive was not extracted and no entry contents were executed".to_owned(),
+                    "Structural acceptance is not a malware, secret, license, or content trust verdict"
+                        .to_owned(),
+                ],
+            )?;
+            state.storage.record_evidence(&evidence)?;
+            state.storage.append_event(
+                trace_id,
+                "evidence.recorded",
+                &json!({"evidence_id": evidence.id, "kind": "ARCHIVE_INSPECTION"}),
+            )?;
+            Ok(json!({"snapshot": payload, "evidence": evidence}))
+        }
         "evidence.list" => {
             let limit = bounded_limit(&request.params, 50);
             Ok(serde_json::to_value(state.storage.list_evidence(limit)?)?)
@@ -193,10 +227,26 @@ async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> any
                 "provider_id": "toolos.adapter.system",
                 "blast_radius": "READ_ONLY",
                 "status": "IMPLEMENTED"
+            },
+            {
+                "capability_id": "archive.inspect",
+                "provider_id": "toolos.adapter.system",
+                "blast_radius": "READ_ONLY",
+                "status": "IMPLEMENTED"
             }
         ])),
         _ => Err(anyhow!("unknown daemon method: {}", request.method)),
     }
+}
+
+fn required_path(params: &Value, method: &str) -> anyhow::Result<String> {
+    params
+        .get("path")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .with_context(|| format!("{method} requires a non-empty string 'path' parameter"))
 }
 
 fn bounded_limit(params: &Value, default: usize) -> usize {
@@ -306,6 +356,15 @@ mod tests {
         assert_eq!(bounded_limit(&json!({}), 50), 50);
         assert_eq!(bounded_limit(&json!({"limit": 0}), 50), 1);
         assert_eq!(bounded_limit(&json!({"limit": 900}), 50), 500);
+    }
+
+    #[test]
+    fn path_parameter_must_be_non_empty() {
+        assert!(required_path(&json!({"path": "  "}), "archive.inspect").is_err());
+        assert_eq!(
+            required_path(&json!({"path": "fixture.zip"}), "archive.inspect").expect("path"),
+            "fixture.zip"
+        );
     }
 
     #[test]

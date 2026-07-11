@@ -24,6 +24,8 @@ enum Command {
     Scan,
     /// Inspect project identity and top-level marker files without running project code.
     Inspect { path: String },
+    /// Inspect ZIP structure and extraction-path risks without extracting the archive.
+    Archive { path: String },
     /// List persisted evidence records.
     Evidence {
         #[arg(long, default_value_t = 50)]
@@ -51,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Doctor => ("daemon.ping".to_owned(), json!({})),
         Command::Scan => ("machine.inspect".to_owned(), json!({})),
         Command::Inspect { path } => ("project.inspect".to_owned(), json!({"path": path})),
+        Command::Archive { path } => ("archive.inspect".to_owned(), json!({"path": path})),
         Command::Evidence { limit } => ("evidence.list".to_owned(), json!({"limit": limit})),
         Command::Events { limit } => ("events.replay".to_owned(), json!({"limit": limit})),
         Command::Capabilities => ("capabilities.list".to_owned(), json!({})),
@@ -92,6 +95,15 @@ mod tests {
         let cli = Cli::try_parse_from(["toolos", "inspect", "."]).expect("parse CLI");
         match cli.command {
             Command::Inspect { path } => assert_eq!(path, "."),
+            _ => panic!("wrong command"),
+        }
+    }
+
+    #[test]
+    fn clap_parses_archive_path() {
+        let cli = Cli::try_parse_from(["toolos", "archive", "input.zip"]).expect("parse CLI");
+        match cli.command {
+            Command::Archive { path } => assert_eq!(path, "input.zip"),
             _ => panic!("wrong command"),
         }
     }

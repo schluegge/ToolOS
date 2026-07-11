@@ -35,7 +35,7 @@ fn handle_request(request: RpcRequest) -> RpcResponse {
             "adapter_version": env!("CARGO_PKG_VERSION"),
             "protocol": ADAPTER_PROTOCOL_VERSION,
             "status": "HEALTHY",
-            "capabilities": ["machine.inspect", "project.inspect"]
+            "capabilities": ["machine.inspect", "project.inspect", "archive.inspect"]
         })),
         "machine.inspect" => serde_json::to_value(toolos_system::inspect_machine())
             .map_err(|error| error.to_string()),
@@ -48,6 +48,13 @@ fn handle_request(request: RpcRequest) -> RpcResponse {
                 serde_json::to_value(toolos_system::inspect_project(path))
                     .map_err(|error| error.to_string())
             }),
+        "archive.inspect" => request
+            .params
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "archive.inspect requires a string 'path' parameter".to_owned())
+            .and_then(toolos_archive::inspect_zip)
+            .and_then(|report| serde_json::to_value(report).map_err(|error| error.to_string())),
         _ => Err(format!("unknown adapter method: {}", request.method)),
     };
 
@@ -67,6 +74,21 @@ mod tests {
         let result = response.result.expect("health result");
         assert_eq!(result["status"], "HEALTHY");
         assert_eq!(result["protocol"], ADAPTER_PROTOCOL_VERSION);
+        assert!(result["capabilities"]
+            .as_array()
+            .expect("capability array")
+            .contains(&Value::String("archive.inspect".to_owned())));
+    }
+
+    #[test]
+    fn archive_inspection_requires_path() {
+        let response = handle_request(RpcRequest::new("archive.inspect", json!({})));
+        assert!(response.result.is_none());
+        assert!(response
+            .error
+            .expect("error")
+            .message
+            .contains("requires a string 'path'"));
     }
 
     #[test]

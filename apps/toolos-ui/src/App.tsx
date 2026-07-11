@@ -5,6 +5,7 @@ import {
   type HealthReport,
   type MachineSnapshot,
   type ProjectSnapshot,
+  type ZipInspectionReport,
 } from "./api";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
@@ -13,8 +14,10 @@ function App() {
   const [health, setHealth] = useState<HealthReport | null>(null);
   const [machine, setMachine] = useState<MachineSnapshot | null>(null);
   const [project, setProject] = useState<ProjectSnapshot | null>(null);
+  const [archive, setArchive] = useState<ZipInspectionReport | null>(null);
   const [evidence, setEvidence] = useState<EvidenceRecord[]>([]);
   const [projectPath, setProjectPath] = useState(".");
+  const [archivePath, setArchivePath] = useState("");
   const [status, setStatus] = useState<LoadState>("loading");
   const [message, setMessage] = useState(
     "Connecting to the local ToolOS daemon…",
@@ -80,9 +83,35 @@ function App() {
     }
   };
 
+  const inspectArchive = async () => {
+    const trimmed = archivePath.trim();
+    if (!trimmed) {
+      setStatus("error");
+      setMessage("Enter a ZIP archive path before inspection.");
+      return;
+    }
+    setStatus("loading");
+    setMessage("Inspecting ZIP paths and declared sizes without extraction…");
+    try {
+      const result = await api.inspectArchive(trimmed);
+      setArchive(result.snapshot);
+      await refreshEvidence();
+      setStatus("ready");
+      setMessage(archiveOutcomeMessage(result.snapshot.decision));
+    } catch (error) {
+      setStatus("error");
+      setMessage(formatError(error));
+    }
+  };
+
   const foundTools = useMemo(
     () => machine?.tools.filter((tool) => tool.discovered) ?? [],
     [machine],
+  );
+
+  const blockerCount = useMemo(
+    () => archive?.findings.filter((finding) => finding.severity === "BLOCKER").length ?? 0,
+    [archive],
   );
 
   return (
@@ -103,20 +132,21 @@ function App() {
           </a>
           <a href="#machine">Machine</a>
           <a href="#project">Project</a>
+          <a href="#archive">Archive</a>
           <a href="#evidence">Evidence</a>
         </nav>
         <div className="safety-note">
           <span>Current safety boundary</span>
           <strong>Read-only</strong>
-          <p>No installs, deletes, credentials, billing, or repository scripts.</p>
+          <p>No installs, extraction, deletes, credentials, billing, or repository scripts.</p>
         </div>
       </aside>
 
       <main>
         <header id="overview" className="topbar">
           <div>
-            <p className="eyebrow">Milestone A + discovery proof</p>
-            <h1>Understand this machine before changing it.</h1>
+            <p className="eyebrow">Milestone B · trusted state graph</p>
+            <h1>Understand the machine, project, and archive before changing them.</h1>
           </div>
           <button
             className="secondary"
@@ -157,9 +187,9 @@ function App() {
             detail="Most recent 20"
           />
           <Metric
-            label="Privacy mode"
-            value={machine?.privacy_mode ?? "METADATA_ONLY"}
-            detail="No secret-content scan"
+            label="Archive decision"
+            value={archive ? decisionLabel(archive.decision) : "Not inspected"}
+            detail={archive ? `${blockerCount} blocker findings` : "Metadata-only"}
           />
         </section>
 
@@ -276,14 +306,105 @@ function App() {
           )}
         </section>
 
+        <section id="archive" className="panel action-panel">
+          <div className="panel-heading project-heading">
+            <div>
+              <p className="eyebrow">Archive safety</p>
+              <h2>Inspect a ZIP before extraction</h2>
+              <p>
+                Reads central-directory metadata and checks traversal, Windows path
+                collisions, symlinks, declared sizes, and compression ratios. No entry is
+                extracted or executed.
+              </p>
+            </div>
+            <div className="path-control">
+              <label htmlFor="archive-path">ZIP archive path</label>
+              <div>
+                <input
+                  id="archive-path"
+                  value={archivePath}
+                  placeholder="C:\\path\\archive.zip"
+                  onChange={(event) => setArchivePath(event.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => void inspectArchive()}
+                  disabled={status === "loading"}
+                >
+                  Inspect ZIP
+                </button>
+              </div>
+            </div>
+          </div>
+          {archive ? (
+            <div className="archive-result">
+              <div className="archive-summary">
+                <span className={`decision ${archive.decision.toLowerCase()}`}>
+                  {decisionLabel(archive.decision)}
+                </span>
+                <div>
+                  <strong>{archive.archive_entries} entries evaluated</strong>
+                  <span>
+                    {formatBytes(archive.total_compressed_size)} compressed · {" "}
+                    {formatBytes(archive.total_uncompressed_size)} declared after extraction
+                  </span>
+                </div>
+              </div>
+
+              {archive.findings.length ? (
+                <div className="finding-list" aria-label="Archive findings">
+                  {archive.findings.map((finding, index) => (
+                    <article
+                      className={finding.severity.toLowerCase()}
+                      key={`${finding.code}-${finding.entry_index ?? "archive"}-${index}`}
+                    >
+                      <div>
+                        <strong>{finding.code}</strong>
+                        <span>{finding.severity}</span>
+                      </div>
+                      <p>{finding.message}</p>
+                      {finding.entry_name ? <code>{finding.entry_name}</code> : null}
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState text="No structural blockers or review findings were detected." />
+              )}
+
+              <details className="archive-details">
+                <summary>Show inspected entry metadata</summary>
+                <div className="entry-list">
+                  {archive.entries.map((entry) => (
+                    <article key={`${entry.index}-${entry.name}`}>
+                      <strong>{entry.name}</strong>
+                      <span>
+                        {entry.entry_kind} · {formatBytes(entry.uncompressed_size)} · {" "}
+                        {entry.compression}
+                      </span>
+                    </article>
+                  ))}
+                </div>
+              </details>
+
+              <ul className="limitation-list">
+                {archive.limitations.map((limitation) => (
+                  <li key={limitation}>{limitation}</li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <EmptyState text="Select a ZIP file to evaluate its structure before any future extraction workflow." />
+          )}
+        </section>
+
         <section id="evidence" className="panel">
           <div className="panel-heading">
             <div>
               <p className="eyebrow">Structured evidence</p>
               <h2>Recent observations</h2>
               <p>
-                Every machine and project claim carries scope, provider, timestamp,
-                limitations, and a content hash.
+                Every machine, project, and archive claim carries scope, provider,
+                timestamp, limitations, and a content hash.
               </p>
             </div>
           </div>
@@ -305,7 +426,7 @@ function App() {
               ))}
             </div>
           ) : (
-            <EmptyState text="Run a machine or project inspection to create evidence." />
+            <EmptyState text="Run a machine, project, or archive inspection to create evidence." />
           )}
         </section>
       </main>
@@ -347,6 +468,42 @@ function EmptyState({ text }: { text: string }) {
 function formatDate(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value < 0) {
+    return String(value);
+  }
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let amount = value;
+  let unit = 0;
+  while (amount >= 1024 && unit < units.length - 1) {
+    amount /= 1024;
+    unit += 1;
+  }
+  return `${amount >= 10 || unit === 0 ? amount.toFixed(0) : amount.toFixed(1)} ${units[unit]}`;
+}
+
+function decisionLabel(decision: ZipInspectionReport["decision"]) {
+  switch (decision) {
+    case "ACCEPT_STRUCTURE":
+      return "Structure acceptable";
+    case "REVIEW":
+      return "Manual review";
+    case "BLOCK":
+      return "Blocked";
+  }
+}
+
+function archiveOutcomeMessage(decision: ZipInspectionReport["decision"]) {
+  switch (decision) {
+    case "ACCEPT_STRUCTURE":
+      return "ZIP structure passed the current metadata checks. This is not a content trust verdict.";
+    case "REVIEW":
+      return "ZIP inspection completed with findings that require review before extraction.";
+    case "BLOCK":
+      return "ZIP inspection found structural blockers. Extraction should remain blocked.";
+  }
 }
 
 function formatError(error: unknown) {
