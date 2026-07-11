@@ -36,3 +36,14 @@ process launch and the plan enters `EXECUTING`, preventing silent replay. Produc
 still blocked until Windows process-tree containment is proven (Issue #8) and restart-time
 residual-state reconciliation exists (Issue #9). Locale-stable installed-state and application
 health verification remain separate work (Issue #10).
+
+## Merge gate
+
+This ADR must remain `Proposed` and PR #7 must remain draft until all of the following evidence
+exists:
+
+- Issue #8 proves Windows process-tree containment and descendant termination on timeout;
+- Issue #9 proves crash-safe restart reconciliation and residual-state reporting;
+- Issue #10 defines a locale-stable installed-state verdict and package-health boundary;
+- the final branch passes Rust formatting, Clippy with warnings denied, workspace tests,
+  React typecheck/build, and native Windows Tauri compilation.
