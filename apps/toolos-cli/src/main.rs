@@ -54,6 +54,15 @@ enum Command {
         #[arg(long)]
         architecture: Option<String>,
     },
+    /// Capture read-only WinGet evidence for the installed state of one exact package ID.
+    WingetInstalled {
+        #[arg(long)]
+        id: String,
+        #[arg(long, default_value = "winget")]
+        source: String,
+        #[arg(long, value_enum)]
+        scope: Option<WingetScope>,
+    },
     /// List persisted evidence records.
     Evidence {
         #[arg(long, default_value_t = 50)]
@@ -96,6 +105,16 @@ async fn main() -> anyhow::Result<()> {
                 "version": version,
                 "scope": scope.map(|value| value.as_str()),
                 "architecture": architecture
+            }),
+        ),
+        Command::WingetInstalled { id, source, scope } => (
+            "winget.installed".to_owned(),
+            json!({
+                "package_id": id,
+                "source": source,
+                "version": Value::Null,
+                "scope": scope.map(|value| value.as_str()),
+                "architecture": Value::Null
             }),
         ),
         Command::Evidence { limit } => ("evidence.list".to_owned(), json!({"limit": limit})),
@@ -182,6 +201,29 @@ mod tests {
                 assert_eq!(version.as_deref(), Some("2.50.1"));
                 assert!(matches!(scope, Some(WingetScope::User)));
                 assert_eq!(architecture.as_deref(), Some("x64"));
+            }
+            _ => panic!("wrong command"),
+        }
+    }
+
+    #[test]
+    fn clap_parses_winget_installed_query() {
+        let cli = Cli::try_parse_from([
+            "toolos",
+            "winget-installed",
+            "--id",
+            "Git.Git",
+            "--source",
+            "winget",
+            "--scope",
+            "user",
+        ])
+        .expect("parse CLI");
+        match cli.command {
+            Command::WingetInstalled { id, source, scope } => {
+                assert_eq!(id, "Git.Git");
+                assert_eq!(source, "winget");
+                assert!(matches!(scope, Some(WingetScope::User)));
             }
             _ => panic!("wrong command"),
         }
