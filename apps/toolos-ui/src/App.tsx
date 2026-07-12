@@ -7,6 +7,7 @@ import {
   type ProjectSnapshot,
   type ZipInspectionReport,
 } from "./api";
+import { RecoveryPanel } from "./RecoveryPanel";
 import { WingetPanel } from "./WingetPanel";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
@@ -135,12 +136,13 @@ function App() {
           <a href="#project">Project</a>
           <a href="#archive">Archive</a>
           <a href="#winget">WinGet</a>
+          <a href="#recovery">Recovery</a>
           <a href="#evidence">Evidence</a>
         </nav>
         <div className="safety-note">
           <span>Current safety boundary</span>
-          <strong>Planning and local approval only</strong>
-          <p>No installs, extraction, deletes, agreement acceptance, elevation, credentials, billing, or repository scripts.</p>
+          <strong>Governed evidence-gated writes</strong>
+          <p>Only exact pinned user-scope WinGet execution is enabled. Recovery cleanup remains approval-only and execution-disabled.</p>
         </div>
       </aside>
 
@@ -400,6 +402,11 @@ function App() {
         </section>
 
         <WingetPanel
+          disabled={status === "loading"}
+          onEvidence={refreshEvidence}
+        />
+
+        <RecoveryPanel
           disabled={status === "loading"}
           onEvidence={refreshEvidence}
         />
