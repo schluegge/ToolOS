@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use toolos_process::{ProcessContainmentEvidence, ProcessStopReason};
 use uuid::Uuid;
 
 use crate::{
@@ -37,7 +38,9 @@ pub struct WingetInstallExecutionRequest {
 pub enum WingetExecutionStatus {
     ProviderSucceededPostStateUnverified,
     ProviderFailed,
-    TimedOut,
+    TimedOutContained,
+    CancelledContained,
+    UnknownRequiresRecovery,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -52,6 +55,7 @@ pub struct WingetInstallExecutionReport {
     pub started_at: DateTime<Utc>,
     pub completed_at: DateTime<Utc>,
     pub process_evidence: ProcessEvidence,
+    pub containment_evidence: ProcessContainmentEvidence,
     pub preflight_resolution: WingetResolutionReport,
     pub preflight_installed_state: WingetInstalledStateReport,
     pub post_install_state: Option<WingetInstalledStateReport>,
@@ -147,6 +151,31 @@ pub fn validate_execution_request(
     Ok(derived)
 }
 
+#[must_use]
+pub fn classify_execution_status(
+    process_evidence: &ProcessEvidence,
+    containment: &ProcessContainmentEvidence,
+) -> WingetExecutionStatus {
+    if !containment.containment_confirmed || containment.active_processes_after_cleanup != Some(0) {
+        return WingetExecutionStatus::UnknownRequiresRecovery;
+    }
+
+    match containment.stop_reason {
+        ProcessStopReason::Exited => {
+            if process_evidence.exit_code == Some(0) {
+                WingetExecutionStatus::ProviderSucceededPostStateUnverified
+            } else {
+                WingetExecutionStatus::ProviderFailed
+            }
+        }
+        ProcessStopReason::TimedOut => WingetExecutionStatus::TimedOutContained,
+        ProcessStopReason::Cancelled => WingetExecutionStatus::CancelledContained,
+        ProcessStopReason::DaemonShutdown | ProcessStopReason::ContainmentFailed => {
+            WingetExecutionStatus::UnknownRequiresRecovery
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn build_execution_report(
     execution_id: Uuid,
@@ -158,36 +187,53 @@ pub fn build_execution_report(
     started_at: DateTime<Utc>,
     completed_at: DateTime<Utc>,
     process_evidence: ProcessEvidence,
+    containment_evidence: ProcessContainmentEvidence,
     preflight_resolution: WingetResolutionReport,
     preflight_installed_state: WingetInstalledStateReport,
     post_install_state: Option<WingetInstalledStateReport>,
 ) -> WingetInstallExecutionReport {
-    let status = if process_evidence.timed_out {
-        WingetExecutionStatus::TimedOut
-    } else if process_evidence.exit_code == Some(0) {
-        WingetExecutionStatus::ProviderSucceededPostStateUnverified
-    } else {
-        WingetExecutionStatus::ProviderFailed
-    };
+    let status = classify_execution_status(&process_evidence, &containment_evidence);
     let (verification_claim, single_safest_next_action) = match status {
         WingetExecutionStatus::ProviderSucceededPostStateUnverified => (
-            "WinGet returned exit code zero; ToolOS did not parse a definitive installed-package verdict."
+            "WinGet returned exit code zero and Job Object accounting confirmed zero active processes; ToolOS did not parse a definitive installed-package verdict."
                 .to_owned(),
             "Review the post-install WinGet evidence and run an application-specific healthcheck before relying on the package."
                 .to_owned(),
         ),
         WingetExecutionStatus::ProviderFailed => (
-            "WinGet did not return a successful exit code; installation success is not claimed."
+            "WinGet did not return a successful exit code; Job Object accounting confirmed the process tree ended, but installation success is not claimed."
                 .to_owned(),
-            "Review the bounded provider output. Create a fresh plan only after resolving the reported blocker."
-                .to_owned(),
-        ),
-        WingetExecutionStatus::TimedOut => (
-            "The WinGet invocation exceeded the bounded execution window; final installer state is unknown."
-                .to_owned(),
-            "Inspect WinGet logs and running installer processes before creating another plan."
+            "Review the bounded provider output and post-state evidence before creating a fresh plan."
                 .to_owned(),
         ),
+        WingetExecutionStatus::TimedOutContained => (
+            "The WinGet invocation exceeded the bounded execution window; ToolOS terminated its Job Object and confirmed zero active processes."
+                .to_owned(),
+            "Review provider output and post-state evidence for partial installation effects before creating a fresh plan."
+                .to_owned(),
+        ),
+        WingetExecutionStatus::CancelledContained => (
+            "Cancellation terminated the WinGet Job Object and ToolOS confirmed zero active processes."
+                .to_owned(),
+            "Review provider output and post-state evidence for partial installation effects before creating a fresh plan."
+                .to_owned(),
+        ),
+        WingetExecutionStatus::UnknownRequiresRecovery => (
+            "ToolOS did not confirm that the complete WinGet process tree reached zero active processes; final machine state is unknown."
+                .to_owned(),
+            "Do not create another package plan. Keep the retained WinGet lock and perform recovery inspection first."
+                .to_owned(),
+        ),
+    };
+
+    let containment_limitation = if containment_evidence.containment_confirmed
+        && containment_evidence.active_processes_after_cleanup == Some(0)
+    {
+        "Windows Job Object accounting confirmed zero active processes before ToolOS finalized the execution state."
+            .to_owned()
+    } else {
+        "Process-tree termination was not confirmed; ToolOS must retain the package-manager lock until recovery reconciliation."
+            .to_owned()
     };
 
     WingetInstallExecutionReport {
@@ -201,6 +247,7 @@ pub fn build_execution_report(
         started_at,
         completed_at,
         process_evidence,
+        containment_evidence,
         preflight_resolution,
         preflight_installed_state,
         post_install_state,
@@ -215,8 +262,7 @@ pub fn build_execution_report(
                 .to_owned(),
             "WinGet output and exit status are evidence, not a universal application healthcheck."
                 .to_owned(),
-            "On timeout, ToolOS cannot prove that every installer child process terminated; inspect the machine before retrying."
-                .to_owned(),
+            containment_limitation,
         ],
         single_safest_next_action,
     }
@@ -233,6 +279,34 @@ mod tests {
             version: Some("2.50.1".to_owned()),
             scope: Some(PackageScope::User),
             architecture: Some("x64".to_owned()),
+        }
+    }
+
+    fn process(exit_code: Option<i32>) -> ProcessEvidence {
+        ProcessEvidence {
+            executable: "winget".to_owned(),
+            args: vec!["install".to_owned()],
+            exit_code,
+            stdout: String::new(),
+            stderr: String::new(),
+            timed_out: false,
+            duration_ms: 1,
+        }
+    }
+
+    fn containment(
+        reason: ProcessStopReason,
+        confirmed: bool,
+        active: Option<u32>,
+    ) -> ProcessContainmentEvidence {
+        ProcessContainmentEvidence {
+            method: "WINDOWS_JOB_OBJECT_STARTUP_ATTRIBUTE".to_owned(),
+            root_pid: Some(123),
+            stop_reason: reason,
+            active_processes_after_cleanup: active,
+            descendants_terminated: confirmed.then_some(true),
+            containment_confirmed: confirmed,
+            detail: "test".to_owned(),
         }
     }
 
@@ -281,6 +355,42 @@ mod tests {
         assert_eq!(
             execution_confirmation("Git.Git", &"a".repeat(64)).expect("confirmation"),
             "EXECUTE INSTALL Git.Git aaaaaaaaaaaa"
+        );
+    }
+
+    #[test]
+    fn execution_status_requires_confirmed_zero_processes() {
+        assert_eq!(
+            classify_execution_status(
+                &process(Some(0)),
+                &containment(ProcessStopReason::Exited, false, Some(1))
+            ),
+            WingetExecutionStatus::UnknownRequiresRecovery
+        );
+        assert_eq!(
+            classify_execution_status(
+                &process(Some(0)),
+                &containment(ProcessStopReason::Exited, true, Some(0))
+            ),
+            WingetExecutionStatus::ProviderSucceededPostStateUnverified
+        );
+    }
+
+    #[test]
+    fn confirmed_timeout_and_cancel_have_distinct_statuses() {
+        assert_eq!(
+            classify_execution_status(
+                &process(None),
+                &containment(ProcessStopReason::TimedOut, true, Some(0))
+            ),
+            WingetExecutionStatus::TimedOutContained
+        );
+        assert_eq!(
+            classify_execution_status(
+                &process(None),
+                &containment(ProcessStopReason::Cancelled, true, Some(0))
+            ),
+            WingetExecutionStatus::CancelledContained
         );
     }
 }
