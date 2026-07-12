@@ -208,7 +208,56 @@ mod tests {
         let directory = tempdir().expect("tempdir");
         let storage = Storage::initialize(directory.path().join("toolos.db")).expect("storage");
         let now = Utc::now();
-        let plan = build_recovery_cleanup_plan(&report(), now, 300).expect("plan");
+        let recovery = report();
+        let approval_id = Uuid::new_v4();
+        let connection = storage.open_connection().expect("connection");
+        connection
+            .execute(
+                "INSERT INTO action_plan (id, capability, resource_key, status, plan_hash, created_at, expires_at, approval_phrase, record_json)
+                 VALUES (?1, 'package.install.plan.winget', 'package-manager:winget', 'UNKNOWN_REQUIRES_RECOVERY', 'abc', ?2, ?3, '', '{}')",
+                params![
+                    recovery.plan_id.to_string(),
+                    now.to_rfc3339(),
+                    (now + chrono::Duration::minutes(10)).to_rfc3339()
+                ],
+            )
+            .expect("insert plan");
+        connection
+            .execute(
+                "INSERT INTO approval_receipt (id, plan_id, plan_hash, approved_at, expires_at, resource_key, record_json)
+                 VALUES (?1, ?2, 'abc', ?3, ?4, 'package-manager:winget', '{}')",
+                params![
+                    approval_id.to_string(),
+                    recovery.plan_id.to_string(),
+                    now.to_rfc3339(),
+                    (now + chrono::Duration::minutes(5)).to_rfc3339()
+                ],
+            )
+            .expect("insert approval");
+        connection
+            .execute(
+                "INSERT INTO execution_journal (
+                    execution_id, plan_id, approval_id, plan_hash, resource_key, phase,
+                    provider_id, provider_version, command_json, pre_state_json,
+                    process_identity_json, provider_result_json, recovery_policy_json,
+                    created_at, updated_at, resolved_at, recovery_status,
+                    recovery_report_json, record_json
+                 ) VALUES (?1, ?2, ?3, 'abc', 'package-manager:winget', 'FINALIZED',
+                           'winget', 'v1', '{}', ?4, NULL, NULL, '{}', ?5, ?5, ?5,
+                           'UNKNOWN_REQUIRES_RECOVERY', ?6, '{}')",
+                params![
+                    recovery.execution_id.to_string(),
+                    recovery.plan_id.to_string(),
+                    approval_id.to_string(),
+                    serde_json::to_string(&recovery.pre_state).expect("pre-state"),
+                    now.to_rfc3339(),
+                    serde_json::to_string(&recovery).expect("recovery report")
+                ],
+            )
+            .expect("insert recovery journal");
+        drop(connection);
+
+        let plan = build_recovery_cleanup_plan(&recovery, now, 300).expect("plan");
         storage
             .store_recovery_cleanup_plan(&plan)
             .expect("store cleanup plan");

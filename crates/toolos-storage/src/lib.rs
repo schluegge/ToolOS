@@ -11,7 +11,6 @@ use uuid::Uuid;
 
 mod cleanup;
 mod recovery;
-pub use cleanup::*;
 pub use recovery::*;
 
 const MIGRATION_SLICE: &[M<'_>] = &[
