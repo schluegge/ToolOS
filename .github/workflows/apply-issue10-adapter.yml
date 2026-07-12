@@ -24,7 +24,28 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: python tools/apply-issue10-adapter.py
       - run: cargo fmt --all
-      - run: cargo clippy -p toolos-winget-adapter -p toolos-winget --all-targets -- -D warnings
+      - name: Linux Clippy
+        id: clippy
+        shell: bash
+        run: |
+          set +e
+          cargo clippy -p toolos-winget-adapter -p toolos-winget --all-targets -- -D warnings > ISSUE10_ADAPTER_FAILURE.txt 2>&1
+          code=$?
+          cat ISSUE10_ADAPTER_FAILURE.txt
+          exit $code
+      - name: Publish failure evidence
+        if: failure() && steps.clippy.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: build/winget-user-execution-issue10
+        shell: bash
+        run: |
+          path=ISSUE10_ADAPTER_FAILURE.txt
+          content=$(base64 -w0 "$path")
+          gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${path}" \
+            -f message="Record Issue 10 adapter Clippy failure" \
+            -f content="$content" \
+            -f branch="$TARGET_BRANCH"
       - run: cargo test -p toolos-winget-adapter -p toolos-winget verification -- --nocapture
 
   windows-verify:
