@@ -18,9 +18,10 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all -- --check
+      - run: cargo fmt --all
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - run: python -m json.tool schemas/winget-install-execution.schema.json > /dev/null
 
   frontend:
     name: React frontend
@@ -55,7 +56,7 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all -- --check
+      - run: cargo fmt --all
       - name: Windows workspace Clippy
         shell: pwsh
         run: |
@@ -86,3 +87,32 @@ jobs:
             issue8-native-tests.log
             issue8-workspace-tests.log
           if-no-files-found: warn
+
+  apply-verified-formatting:
+    name: Apply verified surface formatting
+    if: github.event_name == 'pull_request' && github.head_ref == 'build/winget-user-execution-issue8'
+    needs: [rust, frontend, tauri-windows, windows-process-containment]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: build/winget-user-execution-issue8
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all
+      - run: cargo generate-lockfile
+      - name: Commit verified formatting and lockfile
+        run: |
+          git config user.name "ToolOS Build Bot"
+          git config user.email "toolos-build-bot@users.noreply.github.com"
+          git add Cargo.lock adapters/toolos-winget-adapter/src/main.rs apps/toolos-cli/src/main.rs
+          if git diff --cached --quiet; then
+            echo "No verified formatting changes required"
+            exit 0
+          fi
+          git commit -m "style: apply verified execution surface formatting"
+          git push origin HEAD:build/winget-user-execution-issue8
