@@ -156,6 +156,10 @@ async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> any
         "winget.install.lock" => winget_install_lock(state),
         "winget.recovery.list" => recovery::list(state),
         "winget.recovery.get" => recovery::get(state, &request.params),
+        "winget.recovery.cleanup.plan" => recovery::cleanup_plan(state, trace_id, &request.params),
+        "winget.recovery.cleanup.approve" => {
+            recovery::cleanup_approve(state, trace_id, &request.params)
+        }
         "evidence.list" => {
             let limit = bounded_limit(&request.params, 50);
             Ok(serde_json::to_value(state.storage.list_evidence(limit)?)?)
@@ -1045,6 +1049,12 @@ fn capabilities() -> Value {
             "provider_id": "toolos.daemon.recovery",
             "blast_radius": "READ_ONLY_AND_LOCAL_METADATA_WRITE",
             "status": "IMPLEMENTED_FAIL_CLOSED"
+        },
+        {
+            "capability_id": "package.recovery.cleanup.plan.winget",
+            "provider_id": "toolos.daemon.recovery",
+            "blast_radius": "LOCAL_METADATA_WRITE",
+            "status": "APPROVAL_ONLY_EXECUTION_DISABLED"
         },
         {
             "capability_id": "package.preview.install",

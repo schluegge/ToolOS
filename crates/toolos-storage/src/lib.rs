@@ -9,7 +9,9 @@ use toolos_domain::{EventRecord, EvidenceRecord};
 use toolos_winget::WingetExecutionJournal;
 use uuid::Uuid;
 
+mod cleanup;
 mod recovery;
+pub use cleanup::*;
 pub use recovery::*;
 
 const MIGRATION_SLICE: &[M<'_>] = &[
@@ -104,6 +106,31 @@ const MIGRATION_SLICE: &[M<'_>] = &[
             ON execution_journal(phase, updated_at);
         CREATE INDEX execution_journal_recovery_idx
             ON execution_journal(recovery_status, resolved_at);",
+    ),
+    M::up(
+        "CREATE TABLE recovery_cleanup_plan (
+            id TEXT PRIMARY KEY,
+            recovery_execution_id TEXT NOT NULL,
+            plan_hash TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            approval_phrase TEXT NOT NULL,
+            execution_enabled INTEGER NOT NULL CHECK(execution_enabled = 0),
+            record_json TEXT NOT NULL,
+            FOREIGN KEY(recovery_execution_id) REFERENCES execution_journal(execution_id)
+        );
+        CREATE INDEX recovery_cleanup_execution_idx
+            ON recovery_cleanup_plan(recovery_execution_id, created_at DESC);
+        CREATE TABLE recovery_cleanup_approval (
+            id TEXT PRIMARY KEY,
+            cleanup_plan_id TEXT NOT NULL UNIQUE,
+            plan_hash TEXT NOT NULL,
+            approved_at TEXT NOT NULL,
+            execution_enabled INTEGER NOT NULL CHECK(execution_enabled = 0),
+            record_json TEXT NOT NULL,
+            FOREIGN KEY(cleanup_plan_id) REFERENCES recovery_cleanup_plan(id)
+        );",
     ),
 ];
 const MIGRATIONS: Migrations<'_> = Migrations::from_slice(MIGRATION_SLICE);

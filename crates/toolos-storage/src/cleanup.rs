@@ -155,9 +155,9 @@ mod tests {
     use tempfile::tempdir;
     use toolos_winget::{
         approve_recovery_cleanup_plan as approve_domain, build_recovery_cleanup_plan,
-        build_residual_state_manifest, ExecutionJournalPhase, InstalledQueryStatus, PackageScope,
-        PackageSelector, RecoveryStatus, WingetInstalledStateReport, WingetRecoveryReport,
-        install_preview,
+        build_residual_state_manifest, install_preview, ExecutionJournalPhase,
+        InstalledQueryStatus, PackageScope, PackageSelector, RecoveryStatus,
+        WingetInstalledStateReport, WingetRecoveryReport,
     };
 
     fn report() -> WingetRecoveryReport {

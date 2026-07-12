@@ -4,9 +4,9 @@ use serde_json::{json, Value};
 use toolos_domain::{EvidenceKind, EvidenceRecord};
 use toolos_storage::RecoveryResolution;
 use toolos_winget::{
-    build_residual_state_manifest, diff_residual_state, ExecutionJournalPhase, InstallPlanStatus,
-    RecoveryStatus, WingetExecutionJournal, WingetInstallPlan, WingetRecoveryReport,
-    WingetResidualStateManifest,
+    approve_recovery_cleanup_plan, build_recovery_cleanup_plan, build_residual_state_manifest,
+    diff_residual_state, ExecutionJournalPhase, InstallPlanStatus, RecoveryStatus,
+    WingetExecutionJournal, WingetInstallPlan, WingetRecoveryReport, WingetResidualStateManifest,
 };
 use uuid::Uuid;
 
@@ -37,6 +37,76 @@ pub(super) fn list(state: &AppState) -> anyhow::Result<Value> {
     Ok(serde_json::to_value(
         state.storage.list_recovery_reports()?,
     )?)
+}
+
+pub(super) fn cleanup_plan(
+    state: &AppState,
+    trace_id: Uuid,
+    params: &Value,
+) -> anyhow::Result<Value> {
+    let execution_id = required_uuid(params, "execution_id", "winget.recovery.cleanup.plan")?;
+    let report = state
+        .storage
+        .get_recovery_report(execution_id)?
+        .with_context(|| format!("recovery report not found: {execution_id}"))?;
+    let plan = build_recovery_cleanup_plan(&report, Utc::now(), 600).map_err(anyhow::Error::msg)?;
+    state.storage.store_recovery_cleanup_plan(&plan)?;
+    let evidence = EvidenceRecord::new(
+        trace_id,
+        EvidenceKind::AdapterInvocation,
+        format!("winget-recovery-cleanup-plan:{}", plan.cleanup_plan_id),
+        "Execution-disabled recovery cleanup plan created",
+        "toolos.daemon.recovery",
+        serde_json::to_value(&plan)?,
+        plan.limitations.clone(),
+    )?;
+    record_evidence(state, trace_id, &evidence, "WINGET_RECOVERY_CLEANUP_PLAN")?;
+    Ok(json!({"plan": plan, "evidence": evidence}))
+}
+
+pub(super) fn cleanup_approve(
+    state: &AppState,
+    trace_id: Uuid,
+    params: &Value,
+) -> anyhow::Result<Value> {
+    let cleanup_plan_id =
+        required_uuid(params, "cleanup_plan_id", "winget.recovery.cleanup.approve")?;
+    let plan_hash = required_string(params, "plan_hash", "winget.recovery.cleanup.approve")?;
+    let confirmation = required_string(params, "confirmation", "winget.recovery.cleanup.approve")?;
+    let plan = state
+        .storage
+        .get_recovery_cleanup_plan(cleanup_plan_id)?
+        .with_context(|| format!("recovery cleanup plan not found: {cleanup_plan_id}"))?;
+    if plan.plan_hash != plan_hash {
+        return Err(anyhow!("recovery cleanup plan hash mismatch"));
+    }
+    let now = Utc::now();
+    let (approved, receipt) =
+        approve_recovery_cleanup_plan(&plan, &confirmation, now).map_err(anyhow::Error::msg)?;
+    state.storage.approve_recovery_cleanup_plan(
+        cleanup_plan_id,
+        &plan_hash,
+        &confirmation,
+        now,
+        &approved,
+        &receipt,
+    )?;
+    let evidence = EvidenceRecord::new(
+        trace_id,
+        EvidenceKind::AdapterInvocation,
+        format!("winget-recovery-cleanup-approval:{}", receipt.approval_id),
+        "Recovery cleanup intent approved while execution remained disabled",
+        "toolos.daemon.recovery",
+        json!({"plan": approved, "receipt": receipt}),
+        approved.limitations.clone(),
+    )?;
+    record_evidence(
+        state,
+        trace_id,
+        &evidence,
+        "WINGET_RECOVERY_CLEANUP_APPROVAL",
+    )?;
+    Ok(json!({"plan": approved, "receipt": receipt, "evidence": evidence}))
 }
 
 pub(super) fn get(state: &AppState, params: &Value) -> anyhow::Result<Value> {
@@ -195,6 +265,21 @@ fn recovery_decision(
             "Do not create another mutable package plan. Review the recovery report and create a separately approved disabled cleanup plan if appropriate.",
         ),
     }
+}
+
+fn required_string(params: &Value, key: &str, method: &str) -> anyhow::Result<String> {
+    params
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .with_context(|| format!("{method} requires non-empty string {key}"))
+}
+
+fn required_uuid(params: &Value, key: &str, method: &str) -> anyhow::Result<Uuid> {
+    let value = required_string(params, key, method)?;
+    Uuid::parse_str(&value).with_context(|| format!("{method} requires UUID {key}"))
 }
 
 fn phase_name(phase: ExecutionJournalPhase) -> &'static str {
