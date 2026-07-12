@@ -8,6 +8,8 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufRead
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use toolos_domain::{RpcRequest, RpcResponse, ADAPTER_PROTOCOL_VERSION};
+mod verification;
+
 use toolos_winget::{
     identity_probe, install_preview, installed_probe, normalize_selector, uninstall_preview,
     validate_execution_request, version_probe, InstalledQueryStatus, PackageSelector,
@@ -75,6 +77,7 @@ async fn handle_request(request: RpcRequest) -> RpcResponse {
         "adapter.health" => adapter_health().await,
         "winget.resolve" => resolve_request(request.params.clone()).await,
         "winget.installed" => installed_request(request.params.clone()).await,
+        "winget.verify" => verification::verify_request(request.params.clone()).await,
         "winget.install.execute" => execute_install_request(request.params.clone()).await,
         _ => Err(format!("unknown adapter method: {}", request.method)),
     };
@@ -98,6 +101,7 @@ async fn adapter_health() -> Result<Value, String> {
             "capabilities": [
                 "package.resolve.winget",
                 "package.installed.query.winget",
+                "package.verify.winget",
                 "package.preview.install",
                 "package.preview.uninstall",
                 "package.install.execute.winget.user"
