@@ -50,8 +50,8 @@ jobs:
         run: |
           git config user.name "ToolOS Build Bot"
           git config user.email "toolos-build-bot@users.noreply.github.com"
-          git rm .github/workflows/apply-issue9-cleanup.yml
-          git rm tools/apply-issue9-cleanup.py tools/fix-issue9-cleanup.py
+          git rm --ignore-unmatch .github/workflows/apply-issue9-cleanup.yml
+          git rm --ignore-unmatch tools/apply-issue9-cleanup.py tools/fix-issue9-cleanup.py
           git rm --ignore-unmatch ISSUE9_CLEANUP_FAILURE.txt
           git add apps/toolos-daemon crates/toolos-storage Cargo.lock
           git commit -m "Add approved execution-disabled recovery cleanup plans"
