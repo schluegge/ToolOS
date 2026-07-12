@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  apply-and-commit:
+  apply-and-publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,10 +19,23 @@ jobs:
           fetch-depth: 0
       - run: git apply --check ISSUE9_RECOVERY_UI.patch
       - run: git apply ISSUE9_RECOVERY_UI.patch
-      - name: Commit and push
+      - name: Publish verified files through contents API
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: build/winget-user-execution-issue9
+        shell: bash
         run: |
-          git config user.name "ToolOS Build Bot"
-          git config user.email "toolos-build-bot@users.noreply.github.com"
-          git add .github/workflows/verify.yml apps/toolos-ui/src/App.tsx apps/toolos-ui/src/api.ts
-          git commit -m "Wire verified recovery UI contracts"
-          git push origin HEAD:build/winget-user-execution-issue9
+          set -euo pipefail
+          for path in \
+            .github/workflows/verify.yml \
+            apps/toolos-ui/src/App.tsx \
+            apps/toolos-ui/src/api.ts
+          do
+            sha=$(git rev-parse "HEAD:${path}")
+            content=$(base64 -w0 "${path}")
+            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${path}" \
+              -f message="Wire verified recovery UI contracts" \
+              -f content="${content}" \
+              -f branch="${TARGET_BRANCH}" \
+              -f sha="${sha}"
+          done
