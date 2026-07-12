@@ -344,9 +344,14 @@ async fn run_command_with_live_tee(
     ));
     let mirror_task = tokio::spawn(mirror_streams(receiver));
 
-    let (exit_code, timed_out, wait_error) = match tokio::time::timeout(timeout, child.wait()).await {
+    let (exit_code, timed_out, wait_error) = match tokio::time::timeout(timeout, child.wait()).await
+    {
         Ok(Ok(status)) => (status.code(), false, None),
-        Ok(Err(error)) => (None, false, Some(format!("failed while waiting for {executable}: {error}"))),
+        Ok(Err(error)) => (
+            None,
+            false,
+            Some(format!("failed while waiting for {executable}: {error}")),
+        ),
         Err(_) => {
             let mut errors = Vec::new();
             if let Err(error) = child.kill().await {
@@ -534,7 +539,10 @@ mod tests {
     fn live_tee_stream_prefixes_are_unambiguous() {
         assert_eq!(ProviderStream::Stdout.prefix(), b"[winget stdout] ");
         assert_eq!(ProviderStream::Stderr.prefix(), b"[winget stderr] ");
-        assert_ne!(ProviderStream::Stdout.prefix(), ProviderStream::Stderr.prefix());
+        assert_ne!(
+            ProviderStream::Stdout.prefix(),
+            ProviderStream::Stderr.prefix()
+        );
     }
 
     #[test]

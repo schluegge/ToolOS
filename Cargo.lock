@@ -998,6 +998,7 @@ dependencies = [
  "tokio",
  "toolos-domain",
  "toolos-ipc",
+ "uuid",
 ]
 
 [[package]]
