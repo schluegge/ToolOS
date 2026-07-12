@@ -107,6 +107,9 @@ pub enum InstallPlanStatus {
     Executing,
     ExecutionSucceededUnverified,
     ExecutionFailed,
+    ExecutionTimedOut,
+    ExecutionCancelled,
+    UnknownRequiresRecovery,
     Expired,
 }
 

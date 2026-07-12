@@ -170,6 +170,7 @@ pub struct ActionExecutionFinish<'a> {
     pub final_status: &'a str,
     pub updated_plan_json: &'a str,
     pub resource_key: &'a str,
+    pub release_resource_lock: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -636,10 +637,25 @@ impl Storage {
                 "execution completion requires EXECUTING state".to_owned(),
             ));
         }
-        transaction.execute(
-            "DELETE FROM resource_lock WHERE resource_key = ?1 AND holder_plan_id = ?2",
-            params![execution.resource_key, execution.plan_id.to_string()],
-        )?;
+        if execution.release_resource_lock {
+            transaction.execute(
+                "DELETE FROM resource_lock WHERE resource_key = ?1 AND holder_plan_id = ?2",
+                params![execution.resource_key, execution.plan_id.to_string()],
+            )?;
+        } else {
+            let retained = transaction.execute(
+                "UPDATE resource_lock SET expires_at = '9999-12-31T23:59:59+00:00'
+                 WHERE resource_key = ?1 AND holder_plan_id = ?2",
+                params![execution.resource_key, execution.plan_id.to_string()],
+            )?;
+            if retained != 1 {
+                return Err(StorageError::ResourceLocked {
+                    resource_key: execution.resource_key.to_owned(),
+                    holder_plan_id: execution.plan_id.to_string(),
+                    expires_at: "missing recovery lock".to_owned(),
+                });
+            }
+        }
         transaction.commit()?;
         Ok(())
     }
@@ -835,6 +851,54 @@ mod tests {
             }),
             Err(StorageError::ApprovalPhraseMismatch)
         ));
+    }
+
+    #[test]
+    fn unknown_execution_retains_resource_lock() {
+        let directory = tempdir().expect("temp directory");
+        let storage = Storage::initialize(directory.path().join("toolos.db")).expect("storage");
+        let now = Utc::now();
+        let plan_id = Uuid::new_v4();
+        let connection = storage.open_connection().expect("connection");
+        connection
+            .execute(
+                "INSERT INTO action_plan (id, capability, resource_key, status, plan_hash, created_at, expires_at, approval_phrase, record_json)
+                 VALUES (?1, 'package.install.plan.winget', 'package-manager:winget', 'EXECUTING', 'abc', ?2, ?3, '', '{}')",
+                params![
+                    plan_id.to_string(),
+                    now.to_rfc3339(),
+                    (now + chrono::Duration::minutes(10)).to_rfc3339()
+                ],
+            )
+            .expect("insert executing plan");
+        connection
+            .execute(
+                "INSERT INTO resource_lock (resource_key, holder_plan_id, acquired_at, expires_at)
+                 VALUES ('package-manager:winget', ?1, ?2, ?3)",
+                params![
+                    plan_id.to_string(),
+                    now.to_rfc3339(),
+                    (now + chrono::Duration::minutes(30)).to_rfc3339()
+                ],
+            )
+            .expect("insert lock");
+        drop(connection);
+
+        storage
+            .finish_action_execution(&ActionExecutionFinish {
+                plan_id,
+                final_status: "UNKNOWN_REQUIRES_RECOVERY",
+                updated_plan_json: "{}",
+                resource_key: "package-manager:winget",
+                release_resource_lock: false,
+            })
+            .expect("finish unknown execution");
+
+        let lock = storage
+            .get_resource_lock("package-manager:winget", now + chrono::Duration::days(3650))
+            .expect("query retained lock")
+            .expect("retained lock");
+        assert_eq!(lock.holder_plan_id, plan_id);
     }
 
     #[test]
