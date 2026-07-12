@@ -1,5 +1,7 @@
 mod contained_adapter;
 mod recovery;
+#[cfg(test)]
+mod recovery_tests;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

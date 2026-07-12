@@ -12,9 +12,9 @@ use toolos_storage::{
 };
 use toolos_winget::{
     build_approval_receipt, build_install_plan, build_residual_state_manifest, identity_probe,
-    install_preview, installed_probe, uninstall_preview, ExecutionJournalPhase,
-    InstalledQueryStatus, InstallPlanStatus, PackageScope, PackageSelector, ProcessEvidence,
-    RecoveryStatus, ResolutionStatus, WingetExecutionJournal, WingetInstalledStateReport,
+    install_preview, installed_probe, uninstall_preview, ExecutionJournalPhase, InstallPlanStatus,
+    InstalledQueryStatus, PackageScope, PackageSelector, ProcessEvidence, RecoveryStatus,
+    ResolutionStatus, WingetExecutionJournal, WingetInstalledStateReport,
     WingetPersistedProviderResult, WingetProcessIdentity, WingetRecoveryPolicy,
     WingetResolutionReport,
 };
@@ -246,7 +246,11 @@ fn restarted_state(seed: &SeededRecovery) -> AppState {
 
 async fn reconcile(
     phase: ExecutionJournalPhase,
-) -> (SeededRecovery, AppState, toolos_winget::WingetRecoveryReport) {
+) -> (
+    SeededRecovery,
+    AppState,
+    toolos_winget::WingetRecoveryReport,
+) {
     let seed = seed_recovery(phase);
     let state = restarted_state(&seed);
     let reports = reconcile_startup(&state, Uuid::new_v4())
@@ -269,7 +273,10 @@ async fn restart_after_prepared_releases_lock_and_unblocks_writes() {
         .get_resource_lock("package-manager:winget", Utc::now())
         .expect("lock query")
         .is_none());
-    assert!(!state.storage.has_blocking_recovery().expect("blocking query"));
+    assert!(!state
+        .storage
+        .has_blocking_recovery()
+        .expect("blocking query"));
     ensure_mutation_allowed(&state).expect("writes unblocked");
     let plan = state
         .storage
@@ -290,7 +297,10 @@ async fn restart_after_spawn_intent_retains_lock_and_blocks_writes() {
         .get_resource_lock("package-manager:winget", Utc::now())
         .expect("lock query")
         .is_some());
-    assert!(state.storage.has_blocking_recovery().expect("blocking query"));
+    assert!(state
+        .storage
+        .has_blocking_recovery()
+        .expect("blocking query"));
     assert!(ensure_mutation_allowed(&state).is_err());
 }
 
@@ -299,7 +309,10 @@ async fn restart_after_spawned_retains_lock_and_blocks_writes() {
     let (_, state, report) = reconcile(ExecutionJournalPhase::Spawned).await;
     assert_eq!(report.status, RecoveryStatus::UnknownRequiresRecovery);
     assert!(report.lock_retained);
-    assert!(state.storage.has_blocking_recovery().expect("blocking query"));
+    assert!(state
+        .storage
+        .has_blocking_recovery()
+        .expect("blocking query"));
     assert!(ensure_mutation_allowed(&state).is_err());
 }
 
@@ -311,7 +324,10 @@ async fn restart_after_provider_finished_finalizes_without_replay() {
         RecoveryStatus::RecoveredFromPersistedProviderResult
     );
     assert!(!report.lock_retained);
-    assert!(!state.storage.has_blocking_recovery().expect("blocking query"));
+    assert!(!state
+        .storage
+        .has_blocking_recovery()
+        .expect("blocking query"));
     ensure_mutation_allowed(&state).expect("writes unblocked");
     let journal = state
         .storage
