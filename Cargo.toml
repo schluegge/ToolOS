@@ -10,6 +10,7 @@ members = [
   "crates/toolos-system",
   "crates/toolos-archive",
   "crates/toolos-winget",
+  "crates/toolos-process",
   "adapters/toolos-system-adapter",
   "adapters/toolos-winget-adapter",
 ]
@@ -37,6 +38,7 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+windows-sys = "0.61"
 zip = { version = "=8.3.1", default-features = false, features = ["deflate"] }
 
 [workspace.lints.rust]
