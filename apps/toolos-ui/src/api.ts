@@ -172,6 +172,8 @@ export type InstallPlanStatus =
   | "EXECUTION_FAILED"
   | "EXECUTION_TIMED_OUT"
   | "EXECUTION_CANCELLED"
+  | "RECOVERED_NO_PROCESS_STARTED"
+  | "RECOVERED_FROM_PERSISTED_PROVIDER_RESULT"
   | "UNKNOWN_REQUIRES_RECOVERY"
   | "EXPIRED";
 
@@ -260,6 +262,90 @@ export type WingetExecutionResult = {
   evidence: EvidenceRecord;
 };
 
+export type ExecutionJournalPhase =
+  | "PREPARED"
+  | "SPAWN_INTENT"
+  | "SPAWNED"
+  | "PROVIDER_FINISHED"
+  | "FINALIZED";
+
+export type RecoveryStatus =
+  | "RECOVERED_NO_PROCESS_STARTED"
+  | "RECOVERED_FROM_PERSISTED_PROVIDER_RESULT"
+  | "FAILED_RESIDUALS_PRESENT"
+  | "UNKNOWN_REQUIRES_RECOVERY";
+
+export type WingetResidualStateManifest = {
+  selector: WingetPackageSelector;
+  captured_at: string;
+  provider_id: string;
+  provider_version: string | null;
+  installed_state: WingetInstalledStateReport;
+  path_environment_sha256: string;
+  path_entry_count: number;
+  observable_surfaces: string[];
+  unobserved_surfaces: string[];
+};
+
+export type WingetResidualStateDiff = {
+  provider_version_changed: boolean;
+  path_fingerprint_changed: boolean;
+  installed_evidence_changed: boolean;
+  definitive_installed_match_before: boolean | null;
+  definitive_installed_match_after: boolean | null;
+  observed_changes: string[];
+  limitations: string[];
+};
+
+export type WingetRecoveryReport = {
+  recovery_id: string;
+  execution_id: string;
+  plan_id: string;
+  journal_phase: ExecutionJournalPhase;
+  status: RecoveryStatus;
+  observed_at: string;
+  pre_state: WingetResidualStateManifest;
+  post_state: WingetResidualStateManifest | null;
+  residual_diff: WingetResidualStateDiff | null;
+  lock_retained: boolean;
+  mutable_operations_blocked: boolean;
+  limitations: string[];
+  single_safest_next_action: string;
+};
+
+export type RecoveryCleanupPlanStatus =
+  | "AWAITING_APPROVAL"
+  | "APPROVED_EXECUTION_DISABLED"
+  | "EXPIRED";
+
+export type WingetRecoveryCleanupPlan = {
+  cleanup_plan_id: string;
+  recovery_execution_id: string;
+  plan_hash: string;
+  status: RecoveryCleanupPlanStatus;
+  selector: WingetPackageSelector;
+  uninstall_preview: CommandPreview;
+  created_at: string;
+  expires_at: string;
+  approval_allowed: boolean;
+  approval_challenge: ApprovalChallenge | null;
+  execution_enabled: false;
+  inspection_steps: string[];
+  limitations: string[];
+  single_safest_next_action: string;
+};
+
+export type WingetRecoveryCleanupApprovalReceipt = {
+  approval_id: string;
+  cleanup_plan_id: string;
+  recovery_execution_id: string;
+  plan_hash: string;
+  approved_at: string;
+  status: "APPROVED_EXECUTION_DISABLED";
+  execution_enabled: false;
+  limitations: string[];
+};
+
 export type EvidenceRecord = {
   id: string;
   trace_id: string;
@@ -345,6 +431,31 @@ export const api = {
       active: boolean;
       lock: ResourceLock | null;
     }>("winget.install.lock"),
+  listWingetRecoveryReports: () =>
+    daemonRequest<WingetRecoveryReport[]>("winget.recovery.list"),
+  getWingetRecoveryReport: (executionId: string) =>
+    daemonRequest<WingetRecoveryReport>("winget.recovery.get", {
+      execution_id: executionId,
+    }),
+  createWingetRecoveryCleanupPlan: (executionId: string) =>
+    daemonRequest<{ plan: WingetRecoveryCleanupPlan; evidence: EvidenceRecord }>(
+      "winget.recovery.cleanup.plan",
+      { execution_id: executionId },
+    ),
+  approveWingetRecoveryCleanupPlan: (
+    cleanupPlanId: string,
+    planHash: string,
+    confirmation: string,
+  ) =>
+    daemonRequest<{
+      plan: WingetRecoveryCleanupPlan;
+      receipt: WingetRecoveryCleanupApprovalReceipt;
+      evidence: EvidenceRecord;
+    }>("winget.recovery.cleanup.approve", {
+      cleanup_plan_id: cleanupPlanId,
+      plan_hash: planHash,
+      confirmation,
+    }),
   listEvidence: (limit = 20) =>
     daemonRequest<EvidenceRecord[]>("evidence.list", { limit }),
 };
