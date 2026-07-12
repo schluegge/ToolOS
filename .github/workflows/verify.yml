@@ -18,8 +18,7 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: python tools/issue8_adapter_failure.py
-      - run: cargo fmt --all
+      - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: python -m json.tool schemas/winget-install-execution.schema.json > /dev/null
@@ -57,8 +56,7 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: python tools/issue8_adapter_failure.py
-      - run: cargo fmt --all
+      - run: cargo fmt --all -- --check
       - name: Windows workspace Clippy
         shell: pwsh
         run: |
@@ -93,30 +91,3 @@ jobs:
             issue8-native-tests.log
             issue8-workspace-tests.log
           if-no-files-found: error
-
-  apply-verified-adapter-failure-containment:
-    name: Apply verified adapter-failure containment
-    if: github.event_name == 'pull_request' && github.head_ref == 'build/winget-user-execution-issue8'
-    needs: [rust, frontend, tauri-windows, windows-process-containment]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: build/winget-user-execution-issue8
-          fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - run: python tools/issue8_adapter_failure.py
-      - run: cargo fmt --all
-      - run: cargo generate-lockfile
-      - name: Commit verified adapter-failure behavior
-        run: |
-          git config user.name "ToolOS Build Bot"
-          git config user.email "toolos-build-bot@users.noreply.github.com"
-          git rm tools/issue8_adapter_failure.py
-          git add Cargo.lock crates/toolos-process/src/windows.rs crates/toolos-process/src/bin/toolos-process-fixture.rs crates/toolos-process/tests/windows_job_object.rs
-          git commit -m "test: terminate descendants after unexpected adapter exit"
-          git push origin HEAD:build/winget-user-execution-issue8
