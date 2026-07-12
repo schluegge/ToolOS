@@ -332,6 +332,9 @@ fn validate_transition(
             ExecutionJournalPhase::SpawnIntent,
             ExecutionJournalPhase::Spawned
         ) | (
+            ExecutionJournalPhase::SpawnIntent,
+            ExecutionJournalPhase::ProviderFinished
+        ) | (
             ExecutionJournalPhase::Spawned,
             ExecutionJournalPhase::ProviderFinished
         )

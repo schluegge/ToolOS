@@ -111,6 +111,8 @@ pub enum InstallPlanStatus {
     ExecutionFailed,
     ExecutionTimedOut,
     ExecutionCancelled,
+    RecoveredNoProcessStarted,
+    RecoveredFromPersistedProviderResult,
     UnknownRequiresRecovery,
     Expired,
 }

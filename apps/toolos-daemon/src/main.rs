@@ -1,4 +1,5 @@
 mod contained_adapter;
+mod recovery;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -21,10 +22,12 @@ use toolos_storage::{
     StoredApprovalReceipt, StoredResourceLock,
 };
 use toolos_winget::{
-    build_approval_receipt, build_execution_report, build_install_plan, validate_execution_request,
-    InstallPlanStatus, PackageScope, ProcessEvidence, WingetExecutionStatus,
-    WingetInstallApprovalReceipt, WingetInstallExecutionRequest, WingetInstallPlan,
-    WingetInstalledStateReport, WingetResolutionReport,
+    build_approval_receipt, build_execution_report, build_install_plan,
+    build_residual_state_manifest, validate_execution_request, ExecutionJournalPhase,
+    InstallPlanStatus, PackageScope, ProcessEvidence, WingetExecutionJournal,
+    WingetExecutionStatus, WingetInstallApprovalReceipt, WingetInstallExecutionRequest,
+    WingetInstallPlan, WingetInstalledStateReport, WingetPersistedProviderResult,
+    WingetProcessIdentity, WingetRecoveryPolicy, WingetResolutionReport,
 };
 use tracing::{error, info, instrument};
 use tracing_subscriber::EnvFilter;
@@ -72,6 +75,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     let startup_trace = Uuid::new_v4();
+    let recovery_reports = recovery::reconcile_startup(&state, startup_trace).await?;
     state.storage.append_event(
         startup_trace,
         "daemon.started",
@@ -79,7 +83,9 @@ async fn main() -> anyhow::Result<()> {
             "version": env!("CARGO_PKG_VERSION"),
             "database_path": state.storage.path().to_string_lossy(),
             "system_adapter_path": state.system_adapter_path.to_string_lossy(),
-            "winget_adapter_path": state.winget_adapter_path.to_string_lossy()
+            "winget_adapter_path": state.winget_adapter_path.to_string_lossy(),
+            "reconciled_executions": recovery_reports.len(),
+            "mutable_operations_blocked": state.storage.has_blocking_recovery()?
         }),
     )?;
 
@@ -148,6 +154,8 @@ async fn dispatch(state: &AppState, trace_id: Uuid, request: &RpcRequest) -> any
         "winget.install.execute" => winget_install_execute(state, trace_id, &request.params).await,
         "winget.install.cancel" => winget_install_cancel(state, trace_id, &request.params).await,
         "winget.install.lock" => winget_install_lock(state),
+        "winget.recovery.list" => recovery::list(state),
+        "winget.recovery.get" => recovery::get(state, &request.params),
         "evidence.list" => {
             let limit = bounded_limit(&request.params, 50);
             Ok(serde_json::to_value(state.storage.list_evidence(limit)?)?)
@@ -409,6 +417,7 @@ fn winget_install_approve(
     trace_id: Uuid,
     params: &Value,
 ) -> anyhow::Result<Value> {
+    recovery::ensure_mutation_allowed(state)?;
     let plan_id = required_uuid(params, "plan_id", "winget.install.approve")?;
     let expected_hash = required_string(params, "plan_hash", "winget.install.approve")?;
     let confirmation = required_string(params, "confirmation", "winget.install.approve")?;
@@ -491,6 +500,7 @@ async fn winget_install_execute(
     trace_id: Uuid,
     params: &Value,
 ) -> anyhow::Result<Value> {
+    recovery::ensure_mutation_allowed(state)?;
     let execution_id = required_uuid(params, "execution_id", "winget.install.execute")?;
     let plan_id = required_uuid(params, "plan_id", "winget.install.execute")?;
     let approval_id = required_uuid(params, "approval_id", "winget.install.execute")?;
@@ -546,6 +556,31 @@ async fn winget_install_execute(
     let command = validate_execution_request(&request).map_err(anyhow::Error::msg)?;
     let request_json = serde_json::to_value(&request)?;
     let started_at = Utc::now();
+    let pre_state = build_residual_state_manifest(
+        plan.selector.clone(),
+        preflight_resolution.provider_version.clone(),
+        preflight_installed_state.clone(),
+        started_at,
+    );
+    let mut journal = WingetExecutionJournal {
+        execution_id,
+        plan_id,
+        approval_id,
+        plan_hash: plan.plan_hash.clone(),
+        resource_key: plan.lock_key.clone(),
+        phase: ExecutionJournalPhase::Prepared,
+        provider_id: "winget".to_owned(),
+        provider_version: preflight_resolution.provider_version.clone(),
+        command: command.clone(),
+        pre_state,
+        process_identity: None,
+        provider_result: None,
+        recovery_policy: WingetRecoveryPolicy::default(),
+        created_at: started_at,
+        updated_at: started_at,
+        resolved_at: None,
+        recovery_status: None,
+    };
     plan.status = InstallPlanStatus::Executing;
     plan.execution_enabled = false;
     plan.single_safest_next_action =
@@ -574,66 +609,107 @@ async fn winget_install_execute(
         updated_plan_json: &executing_plan_json,
         now: started_at,
         lock_expires_at: started_at + ChronoDuration::minutes(32),
+        journal: &journal,
     }) {
         state.active_executions.lock().await.remove(&execution_id);
         return Err(error.into());
     }
 
-    let (process_evidence, containment_evidence) = match spawn_mutating_adapter(
-        execution_id,
-        &state.winget_adapter_path,
-        "winget.install.execute",
-        request_json,
-        Duration::from_secs(31 * 60),
-    ) {
-        Ok(contained) => {
-            let containment_execution_id = contained.execution_id();
-            let root_pid = contained.root_pid();
-            let control = contained.control();
-            {
-                let mut active = state.active_executions.lock().await;
-                let slot = active
-                    .get_mut(&execution_id)
-                    .context("active execution reservation disappeared before spawn")?;
-                slot.control = Some(control);
-            }
-            if let Err(error) = state.storage.append_event(
-                trace_id,
-                "winget.install.execution.started",
-                &json!({
-                    "execution_id": execution_id,
-                    "containment_execution_id": containment_execution_id,
-                    "plan_id": plan_id,
-                    "approval_id": approval_id,
-                    "plan_hash": plan.plan_hash,
-                    "command": command,
-                    "containment_method": "WINDOWS_JOB_OBJECT_STARTUP_ATTRIBUTE",
-                    "root_pid": root_pid,
-                    "agreements_accepted": false,
-                    "elevation_requested": false
-                }),
-            ) {
-                error!(%error, "failed to persist contained execution start event");
-            }
+    journal.phase = ExecutionJournalPhase::SpawnIntent;
+    journal.updated_at = Utc::now();
+    state
+        .storage
+        .transition_execution_journal(ExecutionJournalPhase::Prepared, &journal)?;
 
-            let outcome = contained.wait(&command).await;
-            state.active_executions.lock().await.remove(&execution_id);
-            match outcome {
-                Ok(outcome) => (outcome.process_evidence, outcome.containment),
-                Err(error) => (
+    let (process_evidence, containment_evidence, provider_expected_phase) =
+        match spawn_mutating_adapter(
+            execution_id,
+            &state.winget_adapter_path,
+            "winget.install.execute",
+            request_json,
+            Duration::from_secs(31 * 60),
+        ) {
+            Ok(contained) => {
+                let containment_execution_id = contained.execution_id();
+                let root_pid = contained.root_pid();
+                let control = contained.control();
+                journal.phase = ExecutionJournalPhase::Spawned;
+                journal.process_identity = Some(WingetProcessIdentity {
+                    root_pid,
+                    containment_method: "WINDOWS_JOB_OBJECT_STARTUP_ATTRIBUTE".to_owned(),
+                    started_at: Utc::now(),
+                });
+                journal.updated_at = Utc::now();
+                if let Err(error) = state
+                    .storage
+                    .transition_execution_journal(ExecutionJournalPhase::SpawnIntent, &journal)
+                {
+                    let _ = control.cancel(ProcessStopReason::ContainmentFailed);
+                    let _ = contained.wait(&command).await;
+                    state.active_executions.lock().await.remove(&execution_id);
+                    return Err(error.into());
+                }
+                {
+                    let mut active = state.active_executions.lock().await;
+                    let slot = active
+                        .get_mut(&execution_id)
+                        .context("active execution reservation disappeared before spawn")?;
+                    slot.control = Some(control);
+                }
+                if let Err(error) = state.storage.append_event(
+                    trace_id,
+                    "winget.install.execution.started",
+                    &json!({
+                        "execution_id": execution_id,
+                        "containment_execution_id": containment_execution_id,
+                        "plan_id": plan_id,
+                        "approval_id": approval_id,
+                        "plan_hash": plan.plan_hash,
+                        "command": command,
+                        "containment_method": "WINDOWS_JOB_OBJECT_STARTUP_ATTRIBUTE",
+                        "root_pid": root_pid,
+                        "agreements_accepted": false,
+                        "elevation_requested": false
+                    }),
+                ) {
+                    error!(%error, "failed to persist contained execution start event");
+                }
+
+                let outcome = contained.wait(&command).await;
+                state.active_executions.lock().await.remove(&execution_id);
+                match outcome {
+                    Ok(outcome) => (
+                        outcome.process_evidence,
+                        outcome.containment,
+                        ExecutionJournalPhase::Spawned,
+                    ),
+                    Err(error) => (
+                        failed_process_evidence(&command, &error.to_string(), false),
+                        containment_failure(&error),
+                        ExecutionJournalPhase::Spawned,
+                    ),
+                }
+            }
+            Err(error) => {
+                state.active_executions.lock().await.remove(&execution_id);
+                (
                     failed_process_evidence(&command, &error.to_string(), false),
                     containment_failure(&error),
-                ),
+                    ExecutionJournalPhase::SpawnIntent,
+                )
             }
-        }
-        Err(error) => {
-            state.active_executions.lock().await.remove(&execution_id);
-            (
-                failed_process_evidence(&command, &error.to_string(), false),
-                containment_failure(&error),
-            )
-        }
-    };
+        };
+
+    journal.phase = ExecutionJournalPhase::ProviderFinished;
+    journal.provider_result = Some(WingetPersistedProviderResult {
+        completed_at: Utc::now(),
+        process_evidence: process_evidence.clone(),
+        containment_evidence: containment_evidence.clone(),
+    });
+    journal.updated_at = Utc::now();
+    state
+        .storage
+        .transition_execution_journal(provider_expected_phase, &journal)?;
 
     let containment_confirmed = containment_evidence.containment_confirmed
         && containment_evidence.active_processes_after_cleanup == Some(0);
@@ -696,6 +772,9 @@ async fn winget_install_execute(
     let final_status = install_plan_status(&plan.status);
     let release_resource_lock = report.status != WingetExecutionStatus::UnknownRequiresRecovery;
     let final_plan_json = serde_json::to_string(&plan)?;
+    journal.phase = ExecutionJournalPhase::Finalized;
+    journal.updated_at = Utc::now();
+    journal.resolved_at = Some(journal.updated_at);
     let evidence = EvidenceRecord::new(
         trace_id,
         EvidenceKind::AdapterInvocation,
@@ -717,6 +796,7 @@ async fn winget_install_execute(
             updated_plan_json: &final_plan_json,
             resource_key: &plan.lock_key,
             release_resource_lock,
+            journal: &journal,
         })?;
     state.storage.append_event(
         trace_id,
@@ -961,6 +1041,12 @@ fn capabilities() -> Value {
             "status": "IMPLEMENTED_JOB_OBJECT"
         },
         {
+            "capability_id": "package.execution.recovery.winget",
+            "provider_id": "toolos.daemon.recovery",
+            "blast_radius": "READ_ONLY_AND_LOCAL_METADATA_WRITE",
+            "status": "IMPLEMENTED_FAIL_CLOSED"
+        },
+        {
             "capability_id": "package.preview.install",
             "provider_id": "toolos.adapter.winget",
             "blast_radius": "USER_PROFILE_WRITE_OR_MACHINE_WRITE",
@@ -1038,6 +1124,10 @@ fn install_plan_status(status: &InstallPlanStatus) -> &'static str {
         InstallPlanStatus::ExecutionFailed => "EXECUTION_FAILED",
         InstallPlanStatus::ExecutionTimedOut => "EXECUTION_TIMED_OUT",
         InstallPlanStatus::ExecutionCancelled => "EXECUTION_CANCELLED",
+        InstallPlanStatus::RecoveredNoProcessStarted => "RECOVERED_NO_PROCESS_STARTED",
+        InstallPlanStatus::RecoveredFromPersistedProviderResult => {
+            "RECOVERED_FROM_PERSISTED_PROVIDER_RESULT"
+        }
         InstallPlanStatus::UnknownRequiresRecovery => "UNKNOWN_REQUIRES_RECOVERY",
         InstallPlanStatus::Expired => "EXPIRED",
     }

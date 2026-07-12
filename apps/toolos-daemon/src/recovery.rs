@@ -34,7 +34,9 @@ pub(super) fn ensure_mutation_allowed(state: &AppState) -> anyhow::Result<()> {
 }
 
 pub(super) fn list(state: &AppState) -> anyhow::Result<Value> {
-    Ok(serde_json::to_value(state.storage.list_recovery_reports()?)?)
+    Ok(serde_json::to_value(
+        state.storage.list_recovery_reports()?,
+    )?)
 }
 
 pub(super) fn get(state: &AppState, params: &Value) -> anyhow::Result<Value> {
@@ -148,7 +150,9 @@ async fn capture_post_state(
         return None;
     }
     let selector_json = serde_json::to_value(&journal.pre_state.selector).ok()?;
-    let value = winget_installed(state, trace_id, &selector_json).await.ok()?;
+    let value = winget_installed(state, trace_id, &selector_json)
+        .await
+        .ok()?;
     let installed = value
         .get("snapshot")
         .cloned()
@@ -283,7 +287,8 @@ mod tests {
 
     #[test]
     fn prepared_is_the_only_auto_release_without_provider_result() {
-        let (status, retained, plan_status, _) = recovery_decision(&journal(ExecutionJournalPhase::Prepared));
+        let (status, retained, plan_status, _) =
+            recovery_decision(&journal(ExecutionJournalPhase::Prepared));
         assert_eq!(status, RecoveryStatus::RecoveredNoProcessStarted);
         assert!(!retained);
         assert_eq!(plan_status, InstallPlanStatus::RecoveredNoProcessStarted);
