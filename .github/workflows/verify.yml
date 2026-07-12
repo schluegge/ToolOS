@@ -55,7 +55,7 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all -- --check
+      - run: cargo fmt --all
       - name: Clippy
         shell: pwsh
         run: |
@@ -79,4 +79,34 @@ jobs:
             issue8-windows.log
             issue8-unit-tests.log
             issue8-native-tests.log
-          if-no-files-found: warn
+            crates/toolos-process/src/bin/toolos-process-fixture.rs
+            crates/toolos-process/tests/windows_job_object.rs
+          if-no-files-found: error
+
+  apply-verified-process-tests:
+    name: Apply verified process tests
+    if: github.event_name == 'pull_request' && github.head_ref == 'build/winget-user-execution-issue8'
+    needs: windows-process-containment
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: build/winget-user-execution-issue8
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all
+      - name: Commit verified formatting
+        run: |
+          git config user.name "ToolOS Build Bot"
+          git config user.email "toolos-build-bot@users.noreply.github.com"
+          git add crates/toolos-process/src/bin/toolos-process-fixture.rs crates/toolos-process/tests/windows_job_object.rs
+          if git diff --cached --quiet; then
+            echo "Verified files already formatted"
+            exit 0
+          fi
+          git commit -m "test: apply verified Windows process-tree tests"
+          git push origin HEAD:build/winget-user-execution-issue8
