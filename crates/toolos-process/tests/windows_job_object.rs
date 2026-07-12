@@ -86,6 +86,10 @@ async fn explicit_cancel_terminates_parent_and_grandchild() {
     assert_eq!(output.containment.stop_reason, ProcessStopReason::Cancelled);
     assert_eq!(output.containment.active_processes_after_cleanup, Some(0));
     assert!(output.containment.containment_confirmed);
+    assert!(
+        output.stderr.contains("PARENT_STDERR_READY"),
+        "stderr observed before cancellation was lost"
+    );
 
     tokio::time::sleep(Duration::from_millis(GRANDCHILD_DELAY_MS + 500)).await;
     assert!(
