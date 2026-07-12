@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [build/winget-user-execution]
     paths:
-      - tools/apply-issue9-storage.py
+      - tools/fix-issue9-storage.py
       - crates/toolos-storage/src/recovery.rs
       - crates/toolos-storage/Cargo.toml
       - .github/workflows/apply-issue9-storage.yml
@@ -24,14 +24,14 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Apply and verify storage journal
+      - name: Apply fixes and verify storage journal
         id: gate
         shell: bash
         run: |
           set -o pipefail
           rm -f ISSUE9_STORAGE_FAILURE.txt
           {
-            python tools/apply-issue9-storage.py
+            python tools/fix-issue9-storage.py
             cargo fmt --all
             cargo clippy -p toolos-storage --all-targets -- -D warnings
             cargo test -p toolos-storage
@@ -51,7 +51,7 @@ jobs:
           git config user.name "ToolOS Build Bot"
           git config user.email "toolos-build-bot@users.noreply.github.com"
           git rm .github/workflows/apply-issue9-storage.yml
-          git rm tools/apply-issue9-storage.py
+          git rm tools/apply-issue9-storage.py tools/fix-issue9-storage.py
           git rm --ignore-unmatch ISSUE9_STORAGE_FAILURE.txt
           git add crates/toolos-storage Cargo.lock
           git commit -m "Add durable WinGet execution journal storage"
