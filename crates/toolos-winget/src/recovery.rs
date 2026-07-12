@@ -234,9 +234,8 @@ pub fn diff_residual_state(
         );
     }
     if observed_changes.is_empty() {
-        observed_changes.push(
-            "No change was detected on the bounded provider-observable surfaces.".to_owned(),
-        );
+        observed_changes
+            .push("No change was detected on the bounded provider-observable surfaces.".to_owned());
     }
 
     WingetResidualStateDiff {
@@ -266,7 +265,10 @@ pub fn build_recovery_cleanup_plan(
         report.status,
         RecoveryStatus::UnknownRequiresRecovery | RecoveryStatus::FailedResidualsPresent
     ) {
-        return Err("cleanup planning is allowed only for unresolved or detected-residual recovery reports".to_owned());
+        return Err(
+            "cleanup planning is allowed only for unresolved or detected-residual recovery reports"
+                .to_owned(),
+        );
     }
 
     let ttl_seconds = ttl_seconds.clamp(60, 900);
@@ -323,7 +325,13 @@ pub fn approve_recovery_cleanup_plan(
     plan: &WingetRecoveryCleanupPlan,
     confirmation: &str,
     now: DateTime<Utc>,
-) -> Result<(WingetRecoveryCleanupPlan, WingetRecoveryCleanupApprovalReceipt), String> {
+) -> Result<
+    (
+        WingetRecoveryCleanupPlan,
+        WingetRecoveryCleanupApprovalReceipt,
+    ),
+    String,
+> {
     if plan.status != RecoveryCleanupPlanStatus::AwaitingApproval || !plan.approval_allowed {
         return Err("recovery cleanup plan is not awaiting approval".to_owned());
     }
@@ -364,9 +372,7 @@ pub fn cleanup_approval_phrase(execution_id: Uuid, plan_hash: &str) -> Result<St
     let prefix = plan_hash
         .get(..HASH_PREFIX_LENGTH)
         .ok_or_else(|| "cleanup plan hash is too short".to_owned())?;
-    Ok(format!(
-        "APPROVE RECOVERY CLEANUP {execution_id} {prefix}"
-    ))
+    Ok(format!("APPROVE RECOVERY CLEANUP {execution_id} {prefix}"))
 }
 
 fn cleanup_plan_hash(
@@ -405,9 +411,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        install_preview, InstalledQueryStatus, PackageScope, WingetInstalledStateReport,
-    };
+    use crate::{install_preview, InstalledQueryStatus, PackageScope, WingetInstalledStateReport};
 
     fn selector() -> PackageSelector {
         PackageSelector {

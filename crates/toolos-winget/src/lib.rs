@@ -196,7 +196,9 @@ pub fn build_install_plan(
         blockers.push("Execution requires an explicit architecture pin.".to_owned());
     }
     if installed_state.definitive_installed_match == Some(true) {
-        blockers.push("The exact package is already installed according to definitive evidence.".to_owned());
+        blockers.push(
+            "The exact package is already installed according to definitive evidence.".to_owned(),
+        );
     }
 
     let status = if blockers.is_empty() {
@@ -296,8 +298,8 @@ pub fn build_approval_receipt(
         return Err("approval phrase does not match the immutable plan".to_owned());
     }
     let ttl_seconds = ttl_seconds.clamp(60, 600);
-    let expires_at = (now + Duration::seconds(i64::try_from(ttl_seconds).unwrap_or(300)))
-        .min(plan.expires_at);
+    let expires_at =
+        (now + Duration::seconds(i64::try_from(ttl_seconds).unwrap_or(300))).min(plan.expires_at);
     let lock_expires_at = expires_at;
     Ok(WingetInstallApprovalReceipt {
         approval_id: Uuid::new_v4(),
@@ -438,14 +440,23 @@ mod tests {
     fn install_preview_is_locked_and_execution_disabled() {
         let preview = install_preview(&selector());
         assert_eq!(preview.executable, "winget");
-        assert!(preview.args.windows(2).any(|pair| pair == ["--id", "Git.Git"]));
+        assert!(preview
+            .args
+            .windows(2)
+            .any(|pair| pair == ["--id", "Git.Git"]));
         assert!(preview.args.iter().any(|argument| argument == "--exact"));
         assert!(preview
             .args
             .windows(2)
             .any(|pair| pair == ["--source", "winget"]));
-        assert!(preview.args.iter().any(|argument| argument == "--disable-interactivity"));
-        assert!(preview.args.iter().any(|argument| argument == "--no-upgrade"));
+        assert!(preview
+            .args
+            .iter()
+            .any(|argument| argument == "--disable-interactivity"));
+        assert!(preview
+            .args
+            .iter()
+            .any(|argument| argument == "--no-upgrade"));
         assert!(!preview.execution_enabled);
     }
 
