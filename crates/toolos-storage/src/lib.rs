@@ -6,7 +6,11 @@ use rusqlite_migration::{Migrations, M};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use toolos_domain::{EventRecord, EvidenceRecord};
+use toolos_winget::WingetExecutionJournal;
 use uuid::Uuid;
+
+mod recovery;
+pub use recovery::*;
 
 const MIGRATION_SLICE: &[M<'_>] = &[
     M::up(
@@ -72,6 +76,35 @@ const MIGRATION_SLICE: &[M<'_>] = &[
             FOREIGN KEY(holder_plan_id) REFERENCES action_plan(id)
         );",
     ),
+    M::up(
+        "CREATE TABLE execution_journal (
+            execution_id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL UNIQUE,
+            approval_id TEXT NOT NULL,
+            plan_hash TEXT NOT NULL,
+            resource_key TEXT NOT NULL,
+            phase TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            provider_version TEXT,
+            command_json TEXT NOT NULL,
+            pre_state_json TEXT NOT NULL,
+            process_identity_json TEXT,
+            provider_result_json TEXT,
+            recovery_policy_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            resolved_at TEXT,
+            recovery_status TEXT,
+            recovery_report_json TEXT,
+            record_json TEXT NOT NULL,
+            FOREIGN KEY(plan_id) REFERENCES action_plan(id),
+            FOREIGN KEY(approval_id) REFERENCES approval_receipt(id)
+        );
+        CREATE INDEX execution_journal_phase_idx
+            ON execution_journal(phase, updated_at);
+        CREATE INDEX execution_journal_recovery_idx
+            ON execution_journal(recovery_status, resolved_at);",
+    ),
 ];
 const MIGRATIONS: Migrations<'_> = Migrations::from_slice(MIGRATION_SLICE);
 
@@ -109,6 +142,15 @@ pub enum StorageError {
         holder_plan_id: String,
         expires_at: String,
     },
+    #[error("execution journal {execution_id} is not in expected phase {expected}")]
+    JournalPhaseMismatch {
+        execution_id: String,
+        expected: String,
+    },
+    #[error("invalid execution journal transition from {expected} to {next}")]
+    JournalTransitionInvalid { expected: String, next: String },
+    #[error("execution journal recovery result does not match report: {0}")]
+    JournalRecoveryMismatch(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -162,6 +204,7 @@ pub struct ActionExecutionStart<'a> {
     pub updated_plan_json: &'a str,
     pub now: DateTime<Utc>,
     pub lock_expires_at: DateTime<Utc>,
+    pub journal: &'a WingetExecutionJournal,
 }
 
 #[derive(Debug)]
@@ -171,6 +214,7 @@ pub struct ActionExecutionFinish<'a> {
     pub updated_plan_json: &'a str,
     pub resource_key: &'a str,
     pub release_resource_lock: bool,
+    pub journal: &'a WingetExecutionJournal,
 }
 
 #[derive(Debug, Clone)]
@@ -612,6 +656,7 @@ impl Storage {
                 execution.plan_id.to_string()
             ],
         )?;
+        recovery::insert_execution_journal(&transaction, execution.journal)?;
         transaction.commit()?;
         Ok(())
     }
@@ -637,6 +682,7 @@ impl Storage {
                 "execution completion requires EXECUTING state".to_owned(),
             ));
         }
+        recovery::finalize_execution_journal(&transaction, execution.journal)?;
         if execution.release_resource_lock {
             transaction.execute(
                 "DELETE FROM resource_lock WHERE resource_key = ?1 AND holder_plan_id = ?2",

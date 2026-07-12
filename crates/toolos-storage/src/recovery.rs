@@ -368,7 +368,9 @@ fn recovery_status_name(status: RecoveryStatus) -> &'static str {
     }
 }
 
-fn serialize_optional<T: serde::Serialize>(value: &Option<T>) -> Result<Option<String>, StorageError> {
+fn serialize_optional<T: serde::Serialize>(
+    value: &Option<T>,
+) -> Result<Option<String>, StorageError> {
     value
         .as_ref()
         .map(serde_json::to_string)
