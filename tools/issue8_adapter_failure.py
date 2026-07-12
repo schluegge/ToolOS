@@ -12,6 +12,41 @@ def replace_exact(path: str, old: str, new: str) -> None:
 
 replace_exact(
     "crates/toolos-process/src/windows.rs",
+    '''const TERMINATION_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(5);
+const OUTPUT_TRUNCATION_MARKER: &str = "\\n[ToolOS truncated contained process output]";
+''',
+    '''const TERMINATION_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(5);
+const ROOT_EXIT_ACCOUNTING_GRACE: Duration = Duration::from_millis(250);
+const OUTPUT_TRUNCATION_MARKER: &str = "\\n[ToolOS truncated contained process output]";
+''',
+)
+
+replace_exact(
+    "crates/toolos-process/src/windows.rs",
+    '''    let mut root_exited = false;
+    let mut exit_code = None;
+''',
+    '''    let mut root_exited = false;
+    let mut root_exited_at = None;
+    let mut exit_code = None;
+''',
+)
+
+replace_exact(
+    "crates/toolos-process/src/windows.rs",
+    '''        if wait == WAIT_OBJECT_0 {
+            root_exited = true;
+            exit_code = process_exit_code(process.raw())?;
+''',
+    '''        if wait == WAIT_OBJECT_0 {
+            root_exited = true;
+            root_exited_at.get_or_insert_with(Instant::now);
+            exit_code = process_exit_code(process.raw())?;
+''',
+)
+
+replace_exact(
+    "crates/toolos-process/src/windows.rs",
     '''        if root_exited && active == 0 {
             containment_confirmed = true;
             active_after_cleanup = Some(0);
@@ -28,6 +63,8 @@ replace_exact(
 
         if root_exited
             && active > 0
+            && root_exited_at
+                .is_some_and(|exited_at| exited_at.elapsed() >= ROOT_EXIT_ACCOUNTING_GRACE)
             && control.inner.requested_stop.load(Ordering::Acquire) == STOP_NONE
         {
             control.cancel(ProcessStopReason::ContainmentFailed)?;
