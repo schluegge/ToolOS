@@ -23,14 +23,33 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all
-      - run: cargo clippy -p toolos-winget --all-targets -- -D warnings
-      - run: cargo test -p toolos-winget
+      - name: Format and verify domain
+        id: gate
+        shell: bash
+        run: |
+          set -o pipefail
+          rm -f ISSUE9_DOMAIN_FAILURE.txt
+          {
+            cargo fmt --all
+            cargo clippy -p toolos-winget --all-targets -- -D warnings
+            cargo test -p toolos-winget
+          } 2>&1 | tee /tmp/issue9-domain.log
+      - name: Persist failure evidence
+        if: failure() && steps.gate.outcome == 'failure'
+        run: |
+          cp /tmp/issue9-domain.log ISSUE9_DOMAIN_FAILURE.txt
+          git config user.name "ToolOS Build Bot"
+          git config user.email "toolos-build-bot@users.noreply.github.com"
+          git add crates/toolos-winget/src/lib.rs crates/toolos-winget/src/recovery.rs ISSUE9_DOMAIN_FAILURE.txt
+          git commit -m "Record Issue 9 domain gate failure"
+          git push origin HEAD:build/winget-user-execution-issue9
       - name: Commit verified formatting
+        if: success()
         run: |
           git config user.name "ToolOS Build Bot"
           git config user.email "toolos-build-bot@users.noreply.github.com"
           git rm .github/workflows/apply-issue9-domain-format.yml
+          git rm --ignore-unmatch ISSUE9_DOMAIN_FAILURE.txt
           git add crates/toolos-winget/src/lib.rs crates/toolos-winget/src/recovery.rs
           git commit -m "Format and verify recovery domain contracts"
           git push origin HEAD:build/winget-user-execution-issue9
