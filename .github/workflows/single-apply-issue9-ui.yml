@@ -1,0 +1,28 @@
+name: single-apply-issue9-ui
+
+on:
+  pull_request:
+    branches: [build/winget-user-execution]
+    paths:
+      - .github/workflows/single-apply-issue9-ui.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: build/winget-user-execution-issue9
+          fetch-depth: 0
+      - run: git apply --check ISSUE9_RECOVERY_UI.patch
+      - run: git apply ISSUE9_RECOVERY_UI.patch
+      - name: Commit and push
+        run: |
+          git config user.name "ToolOS Build Bot"
+          git config user.email "toolos-build-bot@users.noreply.github.com"
+          git add .github/workflows/verify.yml apps/toolos-ui/src/App.tsx apps/toolos-ui/src/api.ts
+          git commit -m "Wire verified recovery UI contracts"
+          git push origin HEAD:build/winget-user-execution-issue9
