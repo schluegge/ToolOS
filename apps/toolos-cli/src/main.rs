@@ -2,6 +2,7 @@ use anyhow::{anyhow, Context};
 use clap::{Parser, Subcommand, ValueEnum};
 use serde_json::{json, Value};
 use toolos_domain::{RpcRequest, RpcResponse};
+use uuid::Uuid;
 
 #[derive(Debug, Parser)]
 #[command(name = "toolos", version, about = "ToolOS local control-plane CLI")]
@@ -85,14 +86,22 @@ enum Command {
         #[arg(long)]
         confirmation: String,
     },
-    /// Execute one approved, version-pinned, architecture-pinned user-scope plan.
+    /// Execute one approved, pinned user-scope plan inside a Windows Job Object.
     WingetInstallExecute {
+        /// Stable ID used by a second CLI process to request cancellation.
+        #[arg(long)]
+        execution_id: Option<String>,
         #[arg(long)]
         plan_id: String,
         #[arg(long)]
         approval_id: String,
         #[arg(long)]
         confirmation: String,
+    },
+    /// Request cancellation of one active contained WinGet execution.
+    WingetInstallCancel {
+        #[arg(long)]
+        execution_id: String,
     },
     /// Show the current ToolOS WinGet package-manager lock.
     WingetInstallLock,
@@ -184,16 +193,29 @@ async fn main() -> anyhow::Result<()> {
             }),
         ),
         Command::WingetInstallExecute {
+            execution_id,
             plan_id,
             approval_id,
             confirmation,
-        } => (
-            "winget.install.execute".to_owned(),
-            json!({
-                "plan_id": plan_id,
-                "approval_id": approval_id,
-                "confirmation": confirmation
-            }),
+        } => {
+            let execution_id = execution_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+            eprintln!("ToolOS execution ID: {execution_id}");
+            eprintln!(
+                "Cancel from another terminal with: toolos winget-install-cancel --execution-id {execution_id}"
+            );
+            (
+                "winget.install.execute".to_owned(),
+                json!({
+                    "execution_id": execution_id,
+                    "plan_id": plan_id,
+                    "approval_id": approval_id,
+                    "confirmation": confirmation
+                }),
+            )
+        }
+        Command::WingetInstallCancel { execution_id } => (
+            "winget.install.cancel".to_owned(),
+            json!({"execution_id": execution_id}),
         ),
         Command::WingetInstallLock => ("winget.install.lock".to_owned(), json!({})),
         Command::WingetInstallPlanGet { plan_id } => (
@@ -317,10 +339,12 @@ mod tests {
     }
 
     #[test]
-    fn clap_parses_governed_install_execution() {
+    fn clap_parses_governed_install_execution_and_cancel() {
         let cli = Cli::try_parse_from([
             "toolos",
             "winget-install-execute",
+            "--execution-id",
+            "00000000-0000-0000-0000-000000000003",
             "--plan-id",
             "00000000-0000-0000-0000-000000000001",
             "--approval-id",
@@ -329,7 +353,24 @@ mod tests {
             "EXECUTE INSTALL Git.Git abcdef123456",
         ])
         .expect("parse execution");
-        assert!(matches!(cli.command, Command::WingetInstallExecute { .. }));
+        match cli.command {
+            Command::WingetInstallExecute { execution_id, .. } => {
+                assert_eq!(
+                    execution_id.as_deref(),
+                    Some("00000000-0000-0000-0000-000000000003")
+                );
+            }
+            _ => panic!("wrong command"),
+        }
+
+        let cli = Cli::try_parse_from([
+            "toolos",
+            "winget-install-cancel",
+            "--execution-id",
+            "00000000-0000-0000-0000-000000000003",
+        ])
+        .expect("parse cancel");
+        assert!(matches!(cli.command, Command::WingetInstallCancel { .. }));
     }
 
     #[test]
