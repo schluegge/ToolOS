@@ -55,6 +55,7 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - run: python tools/issue8_windows_fix.py
       - run: cargo fmt --all
       - name: Clippy
         shell: pwsh
@@ -73,4 +74,5 @@ jobs:
           path: |
             issue8-windows.log
             issue8-tests.log
-          if-no-files-found: warn
+            crates/toolos-process/src/windows.rs
+          if-no-files-found: error
