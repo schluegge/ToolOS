@@ -288,7 +288,7 @@ async fn restart_after_prepared_releases_lock_and_unblocks_writes() {
 
 #[tokio::test]
 async fn restart_after_spawn_intent_retains_lock_and_blocks_writes() {
-    let (_, state, report) = reconcile(ExecutionJournalPhase::SpawnIntent).await;
+    let (_seed, state, report) = reconcile(ExecutionJournalPhase::SpawnIntent).await;
     assert_eq!(report.status, RecoveryStatus::UnknownRequiresRecovery);
     assert!(report.lock_retained);
     assert!(report.mutable_operations_blocked);
@@ -306,7 +306,7 @@ async fn restart_after_spawn_intent_retains_lock_and_blocks_writes() {
 
 #[tokio::test]
 async fn restart_after_spawned_retains_lock_and_blocks_writes() {
-    let (_, state, report) = reconcile(ExecutionJournalPhase::Spawned).await;
+    let (_seed, state, report) = reconcile(ExecutionJournalPhase::Spawned).await;
     assert_eq!(report.status, RecoveryStatus::UnknownRequiresRecovery);
     assert!(report.lock_retained);
     assert!(state
