@@ -1,0 +1,36 @@
+name: apply-issue9-domain-format
+
+on:
+  pull_request:
+    branches: [build/winget-user-execution]
+    paths:
+      - crates/toolos-winget/src/lib.rs
+      - crates/toolos-winget/src/recovery.rs
+      - .github/workflows/apply-issue9-domain-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format-verify-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: build/winget-user-execution-issue9
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all
+      - run: cargo clippy -p toolos-winget --all-targets -- -D warnings
+      - run: cargo test -p toolos-winget
+      - name: Commit verified formatting
+        run: |
+          git config user.name "ToolOS Build Bot"
+          git config user.email "toolos-build-bot@users.noreply.github.com"
+          git rm .github/workflows/apply-issue9-domain-format.yml
+          git add crates/toolos-winget/src/lib.rs crates/toolos-winget/src/recovery.rs
+          git commit -m "Format and verify recovery domain contracts"
+          git push origin HEAD:build/winget-user-execution-issue9
