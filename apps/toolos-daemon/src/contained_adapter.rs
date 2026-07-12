@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context};
 use serde_json::Value;
-use toolos_domain::{RpcRequest, RpcResponse};
+use toolos_domain::{RpcRequest, RpcResponse, JSON_RPC_VERSION};
 use toolos_process::{
     spawn_contained, ContainedCommandSpec, ContainedProcess, ContainedProcessControl,
     ProcessContainmentEvidence, ProcessStopReason,
@@ -85,6 +85,7 @@ pub fn spawn_mutating_adapter(
     timeout: Duration,
 ) -> anyhow::Result<ContainedAdapter> {
     let request = RpcRequest {
+        jsonrpc: JSON_RPC_VERSION.to_owned(),
         id: execution_id.to_string(),
         method: method.to_owned(),
         params,
