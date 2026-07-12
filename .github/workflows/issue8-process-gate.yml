@@ -1,8 +1,8 @@
 name: issue8-process-gate
 
 on:
-  pull_request:
-    branches: [build/winget-user-execution]
+  push:
+    branches: [build/winget-user-execution-issue8]
     paths:
       - .github/workflows/issue8-process-gate.yml
       - Cargo.toml
