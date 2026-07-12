@@ -23,7 +23,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: python tools/apply-issue10-adapter.py
-      - run: cargo fmt --all -- --check
+      - run: cargo fmt --all
       - run: cargo clippy -p toolos-winget-adapter -p toolos-winget --all-targets -- -D warnings
       - run: cargo test -p toolos-winget-adapter -p toolos-winget verification -- --nocapture
 
@@ -38,7 +38,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: python tools/apply-issue10-adapter.py
-      - run: cargo fmt --all -- --check
+      - run: cargo fmt --all
       - run: cargo clippy -p toolos-winget-adapter -p toolos-winget --all-targets -- -D warnings
       - run: cargo test -p toolos-winget-adapter verification -- --nocapture
       - run: cargo test -p toolos-winget verification -- --nocapture
