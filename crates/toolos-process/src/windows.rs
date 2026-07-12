@@ -1,7 +1,7 @@
 use std::ffi::{c_void, OsStr};
 use std::fs::File;
 use std::io::{Read, Write};
-use std::mem::{size_of, zeroed};
+use std::mem::{size_of, size_of_val};
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::io::{FromRawHandle, RawHandle};
 use std::ptr::{null, null_mut};
@@ -29,7 +29,7 @@ use windows_sys::Win32::System::Threading::{
     InitializeProcThreadAttributeList, UpdateProcThreadAttribute, WaitForSingleObject,
     CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT,
     LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-    PROC_THREAD_ATTRIBUTE_JOB_LIST, STARTF_USESTDHANDLES, STARTUPINFOEXW, STILL_ACTIVE,
+    PROC_THREAD_ATTRIBUTE_JOB_LIST, STARTF_USESTDHANDLES, STARTUPINFOEXW,
 };
 
 use crate::{
@@ -47,7 +47,7 @@ const STOP_DAEMON_SHUTDOWN: u8 = 3;
 const STOP_CONTAINMENT_FAILED: u8 = 4;
 
 #[derive(Debug)]
-struct OwnedHandle(HANDLE);
+struct OwnedHandle(usize);
 
 impl OwnedHandle {
     fn new(handle: HANDLE, operation: &str) -> Result<Self, ContainmentError> {
@@ -57,26 +57,26 @@ impl OwnedHandle {
                 last_error()
             )));
         }
-        Ok(Self(handle))
+        Ok(Self(handle as usize))
     }
 
     fn raw(&self) -> HANDLE {
-        self.0
+        self.0 as HANDLE
     }
 
     fn into_raw(mut self) -> HANDLE {
-        let handle = self.0;
-        self.0 = null_mut();
+        let handle = self.raw();
+        self.0 = 0;
         handle
     }
 }
 
 impl Drop for OwnedHandle {
     fn drop(&mut self) {
-        if !self.0.is_null() {
+        if self.0 != 0 {
             // SAFETY: this object uniquely owns the valid HANDLE until it is consumed.
             unsafe {
-                CloseHandle(self.0);
+                CloseHandle(self.raw());
             }
         }
     }
@@ -394,7 +394,7 @@ fn wait_for_completion(
     let mut exit_code = None;
     let mut termination_requested_at = None;
     let mut containment_confirmed = false;
-    let mut active_after_cleanup = None;
+    let active_after_cleanup: Option<u32>;
 
     loop {
         // SAFETY: process HANDLE remains owned for the duration of this loop.
@@ -498,7 +498,7 @@ fn wait_for_completion(
 }
 
 fn create_pipe(parent_writes: bool) -> Result<PipeEnds, ContainmentError> {
-    let mut attributes = SECURITY_ATTRIBUTES {
+    let attributes = SECURITY_ATTRIBUTES {
         nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>())
             .expect("security attributes fit u32"),
         lpSecurityDescriptor: null_mut(),
@@ -521,9 +521,6 @@ fn create_pipe(parent_writes: bool) -> Result<PipeEnds, ContainmentError> {
             last_error()
         )));
     }
-    // The API does not retain this structure.
-    attributes.lpSecurityDescriptor = null_mut();
-
     let read = OwnedHandle::new(read_handle, "CreatePipe read handle")?;
     let write = OwnedHandle::new(write_handle, "CreatePipe write handle")?;
     let parent_handle = if parent_writes {
@@ -576,7 +573,7 @@ fn query_active_processes(job: HANDLE) -> Result<u32, ContainmentError> {
 }
 
 fn process_exit_code(process: HANDLE) -> Result<Option<i32>, ContainmentError> {
-    let mut code = STILL_ACTIVE;
+    let mut code = 0u32;
     // SAFETY: process is a valid process HANDLE and code is writable.
     let read = unsafe { GetExitCodeProcess(process, &mut code) };
     if read == 0 {
@@ -585,17 +582,13 @@ fn process_exit_code(process: HANDLE) -> Result<Option<i32>, ContainmentError> {
             last_error()
         )));
     }
-    if code == STILL_ACTIVE {
-        Ok(None)
-    } else {
-        Ok(Some(i32::from_ne_bytes(code.to_ne_bytes())))
-    }
+    Ok(Some(i32::from_ne_bytes(code.to_ne_bytes())))
 }
 
 fn file_from_owned_handle(handle: OwnedHandle) -> File {
     let raw = handle.into_raw();
     // SAFETY: ownership is transferred exactly once from OwnedHandle to File.
-    unsafe { File::from_raw_handle(raw.cast::<c_void>() as RawHandle) }
+    unsafe { File::from_raw_handle(raw as RawHandle) }
 }
 
 fn read_bounded(mut file: File, limit: usize) -> String {
