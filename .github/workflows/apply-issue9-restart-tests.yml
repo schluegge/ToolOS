@@ -4,8 +4,7 @@ on:
   pull_request:
     branches: [build/winget-user-execution]
     paths:
-      - tools/apply-issue9-restart-tests.py
-      - apps/toolos-daemon/src/recovery_tests.rs
+      - tools/fix-issue9-restart-tests.py
       - .github/workflows/apply-issue9-restart-tests.yml
 
 permissions:
@@ -23,14 +22,14 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Apply and run restart simulations
+      - name: Fix and run restart simulations
         id: gate
         shell: bash
         run: |
           set -o pipefail
           rm -f ISSUE9_RESTART_FAILURE.txt
           {
-            python tools/apply-issue9-restart-tests.py
+            python tools/fix-issue9-restart-tests.py
             cargo fmt --all
             cargo clippy --workspace --all-targets -- -D warnings
             cargo test -p toolos-daemon recovery_tests -- --nocapture
@@ -50,6 +49,6 @@ jobs:
         run: |
           git config user.name "ToolOS Build Bot"
           git config user.email "toolos-build-bot@users.noreply.github.com"
-          git add apps/toolos-daemon/src/main.rs apps/toolos-daemon/src/recovery_tests.rs apps/toolos-daemon/Cargo.toml Cargo.lock
-          git commit -m "Test crash-state reconciliation across daemon restarts"
+          git add apps/toolos-daemon/src/recovery_tests.rs
+          git commit -m "Keep recovery database fixtures alive through assertions"
           git push origin HEAD:build/winget-user-execution-issue9
