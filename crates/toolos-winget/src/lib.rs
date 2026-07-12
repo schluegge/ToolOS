@@ -5,7 +5,9 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 mod execution;
+mod recovery;
 pub use execution::*;
+pub use recovery::*;
 
 const MAX_SELECTOR_LENGTH: usize = 512;
 
@@ -181,42 +183,44 @@ pub fn build_install_plan(
     if installed_state.status != InstalledQueryStatus::QueryCompleted {
         blockers.push("The installed-state query did not complete successfully.".to_owned());
     }
+    if resolution.provider_version.is_none() {
+        blockers.push("The WinGet provider version was not observed.".to_owned());
+    }
+    if resolution.selector.version.is_none() {
+        blockers.push("Execution requires an explicit package version pin.".to_owned());
+    }
+    if resolution.selector.scope != Some(PackageScope::User) {
+        blockers.push("The first execution slice requires explicit user scope.".to_owned());
+    }
+    if resolution.selector.architecture.is_none() {
+        blockers.push("Execution requires an explicit architecture pin.".to_owned());
+    }
     if installed_state.definitive_installed_match == Some(true) {
-        blockers.push(
-            "The exact package is already installed according to definitive evidence.".to_owned(),
-        );
+        blockers.push("The exact package is already installed according to definitive evidence.".to_owned());
     }
 
-    let fingerprint = serde_json::to_vec(&(
+    let status = if blockers.is_empty() {
+        InstallPlanStatus::AwaitingApproval
+    } else {
+        InstallPlanStatus::Blocked
+    };
+    let approval_allowed = blockers.is_empty();
+    let plan_hash = plan_hash(
         plan_id,
+        &resolution.selector,
         &resolution,
         &installed_state,
         &install_preview,
         now,
         expires_at,
-        &lock_key,
-    ))
-    .map_err(|error| format!("cannot serialize install-plan fingerprint: {error}"))?;
-    let plan_hash = format!("{:x}", Sha256::digest(fingerprint));
-    let approval_allowed = blockers.is_empty();
-    let approval_challenge = approval_allowed.then(|| ApprovalChallenge {
-        required_phrase: format!(
-            "APPROVE INSTALL {} {}",
-            resolution.selector.package_id,
-            &plan_hash[..12]
-        ),
-        expires_at,
-    });
-    let status = if approval_allowed {
-        InstallPlanStatus::AwaitingApproval
+    )?;
+    let approval_challenge = if approval_allowed {
+        Some(ApprovalChallenge {
+            required_phrase: approval_phrase(&resolution.selector.package_id, &plan_hash)?,
+            expires_at,
+        })
     } else {
-        InstallPlanStatus::Blocked
-    };
-    let single_safest_next_action = if approval_allowed {
-        "Review the exact command, raw identity and installed-state evidence, then enter the approval phrase before the plan expires. Approval arms only a separate receipt-bound execution step; it does not itself invoke the installer."
-            .to_owned()
-    } else {
-        "Resolve every blocker and create a new plan; blocked plans cannot be approved.".to_owned()
+        None
     };
 
     Ok(WingetInstallPlan {
@@ -235,36 +239,40 @@ pub fn build_install_plan(
         execution_enabled: false,
         blockers,
         pre_execution_requirements: vec![
-            "Re-run exact package resolution immediately before any future execution.".to_owned(),
-            "Re-run installed-state evidence immediately before any future execution.".to_owned(),
-            "Review package and source agreements separately; approval does not accept them.".to_owned(),
-            "Acquire the package-manager lock and retain it through verification.".to_owned(),
-            "Request elevation separately if machine scope or the installer requires it.".to_owned(),
+            "Review the exact command, raw identity and installed-state evidence, then enter the approval phrase before the plan expires. Approval arms only a separate receipt-bound execution step; it does not itself invoke the installer."
+                .to_owned(),
+            "Keep package ID, source, version, user scope, architecture, plan ID and plan hash unchanged."
+                .to_owned(),
+            "Do not proceed if agreement prompts, elevation, force, overrides, custom installer arguments, hash bypass, dependency skipping, reboot allowance, or machine scope are required."
+                .to_owned(),
         ],
         verification: vec![
-            "Run the exact installed-state query after installation.".to_owned(),
-            "Run a provider-appropriate executable or application healthcheck when one is defined."
-                .to_owned(),
-            "Persist command, exit code, bounded output, duration, and post-state evidence."
+            "Re-run the exact read-only installed-state query after execution.".to_owned(),
+            "Treat WinGet exit code zero as provider success only; run an application-specific healthcheck before relying on the installed tool."
                 .to_owned(),
         ],
         rollback: vec![
-            "Use the exact uninstall preview only after a separate destructive-action approval."
+            "Use the separately previewed exact uninstall command only after a new governed plan and approval flow exists."
                 .to_owned(),
-            "Do not claim full rollback: installer-created files, services, settings, and user data may remain."
+            "Inspect PATH, files, services, registry entries, running processes and WinGet logs for residuals; this plan does not guarantee complete rollback."
                 .to_owned(),
         ],
         limitations: vec![
-            "WinGet has no documented true no-side-effect install dry-run in the command surface used here; ToolOS dry run means plan generation without invoking `winget install`."
-                .to_owned(),
-            "Localized WinGet list output is retained as evidence and is not parsed into a definitive installed verdict."
-                .to_owned(),
-            "The generated command contains no agreement acceptance, hash bypass, dependency skip, force, override, or custom installer arguments."
+            "The plan is valid only until its expiry and only for the captured provider identity and selector."
                 .to_owned(),
             "Approval changes only ToolOS metadata and a local lock; a second receipt-bound execution phrase is required before machine mutation."
                 .to_owned(),
+            "The local lock coordinates ToolOS only and cannot prevent external package-manager processes."
+                .to_owned(),
+            "Installed-state output is preserved but not parsed into a locale-independent package verdict."
+                .to_owned(),
         ],
-        single_safest_next_action,
+        single_safest_next_action: if approval_allowed {
+            "Review the exact evidence and enter the displayed approval phrase before expiry."
+                .to_owned()
+        } else {
+            "Resolve every blocker, then create a new plan from fresh WinGet evidence.".to_owned()
+        },
     })
 }
 
@@ -272,26 +280,25 @@ pub fn build_approval_receipt(
     plan: &WingetInstallPlan,
     confirmation: &str,
     now: DateTime<Utc>,
-    lock_ttl_seconds: u64,
+    ttl_seconds: u64,
 ) -> Result<WingetInstallApprovalReceipt, String> {
     if plan.status != InstallPlanStatus::AwaitingApproval || !plan.approval_allowed {
         return Err("install plan is not awaiting approval".to_owned());
+    }
+    if now >= plan.expires_at {
+        return Err("install plan expired".to_owned());
     }
     let challenge = plan
         .approval_challenge
         .as_ref()
         .ok_or_else(|| "install plan has no approval challenge".to_owned())?;
-    if now >= challenge.expires_at || now >= plan.expires_at {
-        return Err("install plan approval window has expired".to_owned());
-    }
     if confirmation.trim() != challenge.required_phrase {
-        return Err("approval phrase does not match the immutable install plan".to_owned());
+        return Err("approval phrase does not match the immutable plan".to_owned());
     }
-
-    let lock_ttl_seconds = lock_ttl_seconds.clamp(30, 300);
-    let requested_expiry = now + Duration::seconds(i64::try_from(lock_ttl_seconds).unwrap_or(300));
-    let expires_at = std::cmp::min(plan.expires_at, requested_expiry);
-
+    let ttl_seconds = ttl_seconds.clamp(60, 600);
+    let expires_at = (now + Duration::seconds(i64::try_from(ttl_seconds).unwrap_or(300)))
+        .min(plan.expires_at);
+    let lock_expires_at = expires_at;
     Ok(WingetInstallApprovalReceipt {
         approval_id: Uuid::new_v4(),
         plan_id: plan.plan_id,
@@ -300,248 +307,62 @@ pub fn build_approval_receipt(
         approved_at: now,
         expires_at,
         lock_key: plan.lock_key.clone(),
-        lock_expires_at: expires_at,
+        lock_expires_at,
         status: InstallPlanStatus::ApprovedAwaitingExecution,
         execution_enabled: true,
-        execution_confirmation: execution_confirmation(
-            &plan.selector.package_id,
-            &plan.plan_hash,
-        )?,
+        execution_confirmation: execution_confirmation(&plan.selector.package_id, &plan.plan_hash)?,
         limitations: vec![
-            "This receipt authorizes only the immutable plan hash during its short validity window."
+            "This receipt is short-lived and bound to one immutable plan hash.".to_owned(),
+            "Execution remains restricted to the exact version-pinned, architecture-pinned, user-scope command derived from the plan."
                 .to_owned(),
-            "The package-manager lock is local to ToolOS and cannot prevent external WinGet processes."
-                .to_owned(),
-            "No package or source agreement was accepted and no installer was executed.".to_owned(),
+            "Package and source agreements are not accepted automatically.".to_owned(),
+            "The local lock cannot block WinGet or installers launched outside ToolOS.".to_owned(),
         ],
     })
 }
 
-pub fn normalize_selector(selector: PackageSelector) -> Result<PackageSelector, String> {
-    Ok(PackageSelector {
-        package_id: validate_token("package_id", selector.package_id)?,
-        source: validate_token("source", selector.source)?,
-        version: selector
-            .version
-            .map(|value| validate_token("version", value))
-            .transpose()?,
-        scope: selector.scope,
-        architecture: selector
-            .architecture
-            .map(|value| validate_token("architecture", value))
-            .transpose()?,
-    })
-}
-
-pub fn identity_probe(selector: &PackageSelector) -> CommandPreview {
-    let mut args = vec![
-        "show".to_owned(),
-        "--id".to_owned(),
-        selector.package_id.clone(),
-        "--exact".to_owned(),
-        "--source".to_owned(),
-        selector.source.clone(),
-        "--disable-interactivity".to_owned(),
-    ];
-    append_show_filters(&mut args, selector);
-    preview(
-        args,
-        "READ_ONLY",
-        vec![
-            "Queries the selected WinGet source for one exact package identity.".to_owned(),
-            "May contact the configured package source over the network.".to_owned(),
-        ],
-        Vec::new(),
-    )
-}
-
-pub fn installed_probe(selector: &PackageSelector) -> CommandPreview {
-    let mut args = vec![
-        "list".to_owned(),
-        "--id".to_owned(),
-        selector.package_id.clone(),
-        "--exact".to_owned(),
-        "--source".to_owned(),
-        selector.source.clone(),
-        "--disable-interactivity".to_owned(),
-    ];
-    if let Some(scope) = &selector.scope {
-        args.push("--scope".to_owned());
-        args.push(scope_text(scope).to_owned());
+fn plan_hash(
+    plan_id: Uuid,
+    selector: &PackageSelector,
+    resolution: &WingetResolutionReport,
+    installed_state: &WingetInstalledStateReport,
+    install_preview: &CommandPreview,
+    created_at: DateTime<Utc>,
+    expires_at: DateTime<Utc>,
+) -> Result<String, String> {
+    #[derive(Serialize)]
+    struct HashPayload<'a> {
+        plan_id: Uuid,
+        selector: &'a PackageSelector,
+        resolution: &'a WingetResolutionReport,
+        installed_state: &'a WingetInstalledStateReport,
+        install_preview: &'a CommandPreview,
+        created_at: DateTime<Utc>,
+        expires_at: DateTime<Utc>,
+        execution_enabled: bool,
+        lock_key: &'static str,
     }
-    preview(
-        args,
-        "READ_ONLY",
-        vec![
-            "Queries WinGet registration data for an installed package matching the exact ID."
-                .to_owned(),
-            "May refresh or contact the configured package source while resolving source metadata."
-                .to_owned(),
-        ],
-        Vec::new(),
-    )
-}
-
-pub fn install_preview(selector: &PackageSelector) -> CommandPreview {
-    let mut args = vec![
-        "install".to_owned(),
-        "--id".to_owned(),
-        selector.package_id.clone(),
-        "--exact".to_owned(),
-        "--source".to_owned(),
-        selector.source.clone(),
-        "--no-upgrade".to_owned(),
-        "--disable-interactivity".to_owned(),
-    ];
-    append_install_filters(&mut args, selector);
-    preview(
-        args,
-        if selector.scope == Some(PackageScope::Machine) {
-            "MACHINE_WRITE"
-        } else {
-            "USER_PROFILE_WRITE"
-        },
-        vec![
-            "Would download and run the package installer selected by WinGet.".to_owned(),
-            "Could add files, applications, services, PATH entries, registry values, or shortcuts according to the package installer.".to_owned(),
-        ],
-        vec![
-            "Explicit approval of the resolved package identity and command.".to_owned(),
-            "Separate review of package and source agreements when WinGet requires them.".to_owned(),
-            "Elevation approval when the installer or machine scope requires it.".to_owned(),
-        ],
-    )
-}
-
-pub fn uninstall_preview(selector: &PackageSelector) -> CommandPreview {
-    let mut args = vec![
-        "uninstall".to_owned(),
-        "--id".to_owned(),
-        selector.package_id.clone(),
-        "--exact".to_owned(),
-        "--source".to_owned(),
-        selector.source.clone(),
-        "--disable-interactivity".to_owned(),
-    ];
-    if let Some(version) = &selector.version {
-        args.push("--version".to_owned());
-        args.push(version.clone());
-    }
-    if let Some(scope) = &selector.scope {
-        args.push("--scope".to_owned());
-        args.push(scope_text(scope).to_owned());
-    }
-    preview(
-        args,
-        if selector.scope == Some(PackageScope::Machine) {
-            "MACHINE_WRITE"
-        } else {
-            "USER_PROFILE_WRITE"
-        },
-        vec![
-            "Would run the installed package's uninstall command through WinGet.".to_owned(),
-            "Residual configuration, caches, services, and user data may remain unless separately inventoried.".to_owned(),
-        ],
-        vec![
-            "Explicit approval of the installed package identity and command.".to_owned(),
-            "A residual-state manifest and recovery warning before execution.".to_owned(),
-            "Elevation approval when the uninstaller or machine scope requires it.".to_owned(),
-        ],
-    )
-}
-
-pub fn version_probe() -> CommandPreview {
-    preview(
-        vec!["--version".to_owned()],
-        "READ_ONLY",
-        vec!["Reads the WinGet client version.".to_owned()],
-        Vec::new(),
-    )
-}
-
-fn append_show_filters(args: &mut Vec<String>, selector: &PackageSelector) {
-    if let Some(version) = &selector.version {
-        args.push("--version".to_owned());
-        args.push(version.clone());
-    }
-    if let Some(scope) = &selector.scope {
-        args.push("--scope".to_owned());
-        args.push(scope_text(scope).to_owned());
-    }
-    if let Some(architecture) = &selector.architecture {
-        args.push("--architecture".to_owned());
-        args.push(architecture.clone());
-    }
-}
-
-fn append_install_filters(args: &mut Vec<String>, selector: &PackageSelector) {
-    if let Some(version) = &selector.version {
-        args.push("--version".to_owned());
-        args.push(version.clone());
-    }
-    if let Some(scope) = &selector.scope {
-        args.push("--scope".to_owned());
-        args.push(scope_text(scope).to_owned());
-    }
-    if let Some(architecture) = &selector.architecture {
-        args.push("--architecture".to_owned());
-        args.push(architecture.clone());
-    }
-}
-
-fn scope_text(scope: &PackageScope) -> &'static str {
-    match scope {
-        PackageScope::User => "user",
-        PackageScope::Machine => "machine",
-    }
-}
-
-fn preview(
-    args: Vec<String>,
-    blast_radius: &str,
-    expected_side_effects: Vec<String>,
-    approval_requirements: Vec<String>,
-) -> CommandPreview {
-    CommandPreview {
-        powershell: render_powershell("winget", &args),
-        executable: "winget".to_owned(),
-        args,
-        working_directory: None,
-        environment_changes: Vec::new(),
-        blast_radius: blast_radius.to_owned(),
+    let payload = HashPayload {
+        plan_id,
+        selector,
+        resolution,
+        installed_state,
+        install_preview,
+        created_at,
+        expires_at,
         execution_enabled: false,
-        expected_side_effects,
-        approval_requirements,
-    }
+        lock_key: "package-manager:winget",
+    };
+    let bytes = serde_json::to_vec(&payload).map_err(|error| error.to_string())?;
+    let digest = Sha256::digest(bytes);
+    Ok(format!("{digest:x}"))
 }
 
-fn validate_token(field: &str, value: String) -> Result<String, String> {
-    let value = value.trim().to_owned();
-    if value.is_empty() {
-        return Err(format!("{field} must not be empty"));
-    }
-    if value.len() > MAX_SELECTOR_LENGTH {
-        return Err(format!("{field} exceeds {MAX_SELECTOR_LENGTH} bytes"));
-    }
-    if value.starts_with('-') {
-        return Err(format!("{field} must not begin with '-'"));
-    }
-    if value.chars().any(char::is_control) {
-        return Err(format!("{field} contains a control character"));
-    }
-    Ok(value)
-}
-
-fn render_powershell(executable: &str, args: &[String]) -> String {
-    std::iter::once(executable)
-        .chain(args.iter().map(String::as_str))
-        .map(quote_powershell)
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn quote_powershell(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
+fn approval_phrase(package_id: &str, plan_hash: &str) -> Result<String, String> {
+    let prefix = plan_hash
+        .get(..12)
+        .ok_or_else(|| "plan hash is too short for approval phrase".to_owned())?;
+    Ok(format!("APPROVE INSTALL {package_id} {prefix}"))
 }
 
 #[cfg(test)]
@@ -558,168 +379,149 @@ mod tests {
         }
     }
 
-    #[test]
-    fn identity_probe_is_exact_and_non_interactive() {
-        let command = identity_probe(&selector());
-        assert_eq!(command.executable, "winget");
-        assert_eq!(command.blast_radius, "READ_ONLY");
-        assert!(!command.execution_enabled);
-        assert_eq!(
-            command.args,
-            [
-                "show",
-                "--id",
-                "Git.Git",
-                "--exact",
-                "--source",
-                "winget",
-                "--disable-interactivity",
-                "--version",
-                "2.50.1",
-                "--scope",
-                "user",
-                "--architecture",
-                "x64",
-            ]
-        );
+    fn preview() -> CommandPreview {
+        install_preview(&selector())
     }
 
-    #[test]
-    fn installed_probe_uses_only_supported_identity_and_scope_filters() {
-        let command = installed_probe(&selector());
-        assert_eq!(command.blast_radius, "READ_ONLY");
-        assert!(!command.execution_enabled);
-        assert_eq!(
-            command.args,
-            [
-                "list",
-                "--id",
-                "Git.Git",
-                "--exact",
-                "--source",
-                "winget",
-                "--disable-interactivity",
-                "--scope",
-                "user",
-            ]
-        );
-        assert!(!command.args.iter().any(|arg| arg == "--architecture"));
-        assert!(!command.args.iter().any(|arg| arg == "--version"));
+    fn process(exit_code: i32) -> ProcessEvidence {
+        ProcessEvidence {
+            executable: "winget".to_owned(),
+            args: vec!["show".to_owned()],
+            exit_code: Some(exit_code),
+            stdout: "provider output".to_owned(),
+            stderr: String::new(),
+            timed_out: false,
+            duration_ms: 10,
+        }
     }
 
-    #[test]
-    fn governed_plan_binds_hash_phrase_and_expiry() {
+    fn reports() -> (WingetResolutionReport, WingetInstalledStateReport) {
+        let selector = selector();
         let resolution = WingetResolutionReport {
             provider_id: "winget".to_owned(),
-            provider_version: Some("v1".to_owned()),
+            provider_version: Some("v1.9.0".to_owned()),
             status: ResolutionStatus::ResolvedExact,
-            selector: selector(),
-            identity_probe: identity_probe(&selector()),
-            identity_evidence: None,
-            install_preview: install_preview(&selector()),
-            uninstall_preview: uninstall_preview(&selector()),
+            selector: selector.clone(),
+            identity_probe: identity_probe(&selector),
+            identity_evidence: Some(process(0)),
+            install_preview: preview(),
+            uninstall_preview: uninstall_preview(&selector),
             observed_at: Utc::now(),
-            limitations: vec![],
-            single_safest_next_action: String::new(),
+            limitations: Vec::new(),
+            single_safest_next_action: "inspect".to_owned(),
         };
         let installed = WingetInstalledStateReport {
             provider_id: "winget".to_owned(),
-            provider_version: Some("v1".to_owned()),
+            provider_version: Some("v1.9.0".to_owned()),
             status: InstalledQueryStatus::QueryCompleted,
-            selector: selector(),
+            selector,
             installed_probe: installed_probe(&selector()),
-            installed_evidence: None,
+            installed_evidence: Some(process(0)),
             observed_at: Utc::now(),
             definitive_installed_match: None,
-            limitations: vec![],
-            single_safest_next_action: String::new(),
+            limitations: Vec::new(),
+            single_safest_next_action: "review".to_owned(),
         };
+        (resolution, installed)
+    }
+
+    #[test]
+    fn selector_normalization_rejects_shell_metacharacters() {
+        let invalid = PackageSelector {
+            package_id: "Git.Git; Remove-Item C:\\".to_owned(),
+            ..selector()
+        };
+        assert!(normalize_selector(invalid).is_err());
+    }
+
+    #[test]
+    fn install_preview_is_locked_and_execution_disabled() {
+        let preview = install_preview(&selector());
+        assert_eq!(preview.executable, "winget");
+        assert!(preview.args.windows(2).any(|pair| pair == ["--id", "Git.Git"]));
+        assert!(preview.args.iter().any(|argument| argument == "--exact"));
+        assert!(preview
+            .args
+            .windows(2)
+            .any(|pair| pair == ["--source", "winget"]));
+        assert!(preview.args.iter().any(|argument| argument == "--disable-interactivity"));
+        assert!(preview.args.iter().any(|argument| argument == "--no-upgrade"));
+        assert!(!preview.execution_enabled);
+    }
+
+    #[test]
+    fn install_preview_never_adds_high_risk_flags() {
+        let preview = install_preview(&selector());
+        for forbidden in [
+            "--accept-package-agreements",
+            "--accept-source-agreements",
+            "--allow-reboot",
+            "--custom",
+            "--force",
+            "--header",
+            "--ignore-local-archive-malware-scan",
+            "--ignore-security-hash",
+            "--manifest",
+            "--override",
+            "--skip-dependencies",
+        ] {
+            assert!(!preview.args.iter().any(|argument| argument == forbidden));
+        }
+    }
+
+    #[test]
+    fn install_plan_is_hash_bound_and_approval_does_not_execute() {
+        let (resolution, installed) = reports();
         let now = Utc::now();
         let plan = build_install_plan(resolution, installed, now, 600).expect("plan");
         assert_eq!(plan.status, InstallPlanStatus::AwaitingApproval);
         assert_eq!(plan.plan_hash.len(), 64);
         assert!(!plan.execution_enabled);
+        let challenge = plan
+            .approval_challenge
+            .as_ref()
+            .expect("challenge")
+            .required_phrase
+            .clone();
+        let receipt = build_approval_receipt(&plan, &challenge, now, 300).expect("approval");
+        assert_eq!(receipt.plan_hash, plan.plan_hash);
+        assert_eq!(receipt.status, InstallPlanStatus::ApprovedAwaitingExecution);
+        assert!(receipt.execution_enabled);
+    }
+
+    #[test]
+    fn approval_rejects_wrong_phrase_and_expired_plan() {
+        let (resolution, installed) = reports();
+        let now = Utc::now();
+        let plan = build_install_plan(resolution, installed, now, 60).expect("plan");
+        assert!(build_approval_receipt(&plan, "wrong", now, 300).is_err());
         let phrase = plan
             .approval_challenge
             .as_ref()
             .expect("challenge")
             .required_phrase
             .clone();
-        let receipt = build_approval_receipt(&plan, &phrase, now, 300).expect("receipt");
-        assert_eq!(receipt.plan_hash, plan.plan_hash);
-        assert_eq!(receipt.status, InstallPlanStatus::ApprovedAwaitingExecution);
-        assert!(receipt.execution_enabled);
-        assert!(build_approval_receipt(&plan, "wrong", now, 300).is_err());
+        assert!(build_approval_receipt(&plan, &phrase, plan.expires_at, 300).is_err());
     }
 
     #[test]
-    fn governed_plan_blocks_unresolved_identity() {
-        let resolution = WingetResolutionReport {
-            provider_id: "winget".to_owned(),
-            provider_version: None,
-            status: ResolutionStatus::Blocked,
-            selector: selector(),
-            identity_probe: identity_probe(&selector()),
-            identity_evidence: None,
-            install_preview: install_preview(&selector()),
-            uninstall_preview: uninstall_preview(&selector()),
-            observed_at: Utc::now(),
-            limitations: vec![],
-            single_safest_next_action: String::new(),
-        };
-        let installed = WingetInstalledStateReport {
-            provider_id: "winget".to_owned(),
-            provider_version: None,
-            status: InstalledQueryStatus::QueryCompleted,
-            selector: selector(),
-            installed_probe: installed_probe(&selector()),
-            installed_evidence: None,
-            observed_at: Utc::now(),
-            definitive_installed_match: None,
-            limitations: vec![],
-            single_safest_next_action: String::new(),
-        };
+    fn machine_scope_and_unpinned_plans_are_blocked() {
+        let (mut resolution, mut installed) = reports();
+        resolution.selector.scope = Some(PackageScope::Machine);
+        installed.selector.scope = Some(PackageScope::Machine);
+        resolution.install_preview = install_preview(&resolution.selector);
+        installed.installed_probe = installed_probe(&installed.selector);
         let plan = build_install_plan(resolution, installed, Utc::now(), 600).expect("plan");
         assert_eq!(plan.status, InstallPlanStatus::Blocked);
         assert!(!plan.approval_allowed);
-        assert!(plan.approval_challenge.is_none());
-    }
 
-    #[test]
-    fn install_preview_does_not_accept_agreements_or_bypass_hashes() {
-        let command = install_preview(&selector());
-        assert!(!command.execution_enabled);
-        assert!(!command.args.iter().any(|arg| arg.contains("agreement")));
-        assert!(!command.args.iter().any(|arg| arg == "--force"));
-        assert!(!command
-            .args
-            .iter()
-            .any(|arg| arg == "--ignore-security-hash"));
-    }
-
-    #[test]
-    fn uninstall_preview_does_not_claim_architecture_filter() {
-        let command = uninstall_preview(&selector());
-        assert!(!command.args.iter().any(|arg| arg == "--architecture"));
-        assert!(!command.execution_enabled);
-    }
-
-    #[test]
-    fn selector_rejects_option_injection_and_control_characters() {
-        let mut invalid = selector();
-        invalid.package_id = "--help".to_owned();
-        assert!(normalize_selector(invalid).is_err());
-
-        let mut invalid = selector();
-        invalid.source = "winget\nmalicious".to_owned();
-        assert!(normalize_selector(invalid).is_err());
-    }
-
-    #[test]
-    fn powershell_rendering_escapes_single_quotes() {
-        assert_eq!(
-            render_powershell("winget", &["show".to_owned(), "A'B".to_owned()]),
-            "'winget' 'show' 'A''B'"
-        );
+        let (mut resolution, mut installed) = reports();
+        resolution.selector.version = None;
+        installed.selector.version = None;
+        resolution.install_preview = install_preview(&resolution.selector);
+        installed.installed_probe = installed_probe(&installed.selector);
+        let plan = build_install_plan(resolution, installed, Utc::now(), 600).expect("plan");
+        assert_eq!(plan.status, InstallPlanStatus::Blocked);
+        assert!(!plan.approval_allowed);
     }
 }
