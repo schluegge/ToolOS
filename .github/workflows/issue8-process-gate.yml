@@ -1,0 +1,57 @@
+name: issue8-process-gate
+
+on:
+  pull_request:
+    branches: [build/winget-user-execution]
+    paths:
+      - .github/workflows/issue8-process-gate.yml
+      - Cargo.toml
+      - Cargo.lock
+      - crates/toolos-process/**
+
+permissions:
+  contents: write
+
+jobs:
+  format-compile-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: build/winget-user-execution-issue8
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format and verify
+        id: gate
+        shell: pwsh
+        run: |
+          Remove-Item ISSUE8_FAILURE.txt -ErrorAction SilentlyContinue
+          $ErrorActionPreference = 'Continue'
+          cargo fmt --all 2>&1 | Tee-Object -FilePath issue8-gate.log
+          if ($LASTEXITCODE -eq 0) { cargo clippy -p toolos-process --all-targets -- -D warnings 2>&1 | Tee-Object -FilePath issue8-gate.log -Append }
+          if ($LASTEXITCODE -eq 0) { cargo test -p toolos-process --all-targets -- --nocapture 2>&1 | Tee-Object -FilePath issue8-gate.log -Append }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Persist failure evidence
+        if: failure() && steps.gate.outcome == 'failure'
+        shell: pwsh
+        run: |
+          Copy-Item issue8-gate.log ISSUE8_FAILURE.txt
+          git config user.name "ToolOS Build Bot"
+          git config user.email "toolos-build-bot@users.noreply.github.com"
+          git add ISSUE8_FAILURE.txt crates/toolos-process Cargo.toml Cargo.lock
+          git commit -m "Record Issue 8 process gate failure"
+          git push origin HEAD:build/winget-user-execution-issue8
+      - name: Commit verified process crate
+        if: success()
+        shell: pwsh
+        run: |
+          git config user.name "ToolOS Build Bot"
+          git config user.email "toolos-build-bot@users.noreply.github.com"
+          git rm .github/workflows/issue8-process-gate.yml
+          git rm --ignore-unmatch ISSUE8_FAILURE.txt
+          git add Cargo.toml Cargo.lock crates/toolos-process
+          git commit -m "feat: add verified Windows process containment core"
+          git push origin HEAD:build/winget-user-execution-issue8
