@@ -18,7 +18,7 @@ replacements = [
     ),
     (
         "    let mut active_after_cleanup = None;",
-        "    let mut active_after_cleanup: Option<u32>;",
+        "    let active_after_cleanup: Option<u32>;",
     ),
     (
         "    let mut attributes = SECURITY_ATTRIBUTES {",
