@@ -4,7 +4,6 @@ on:
   pull_request:
     branches: [build/winget-user-execution]
     paths:
-      - tools/apply-issue9-cleanup.py
       - crates/toolos-storage/src/cleanup.rs
       - .github/workflows/apply-issue9-cleanup.yml
 
@@ -12,7 +11,7 @@ permissions:
   contents: write
 
 jobs:
-  apply-verify-commit:
+  verify-commit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,26 +22,27 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Apply and verify cleanup workflow
+      - name: Verify current cleanup slice
         id: gate
         shell: bash
         run: |
-          set -o pipefail
+          set +e
           rm -f ISSUE9_CLEANUP_FAILURE.txt
           {
-            python tools/apply-issue9-cleanup.py
             cargo fmt --all
             cargo clippy -p toolos-daemon -p toolos-storage -p toolos-winget --all-targets -- -D warnings
             cargo test -p toolos-daemon -p toolos-storage -p toolos-winget
-          } 2>&1 | tee /tmp/issue9-cleanup.log
+          } > ISSUE9_CLEANUP_FAILURE.txt 2>&1
+          code=$?
+          cat ISSUE9_CLEANUP_FAILURE.txt
+          exit $code
       - name: Persist failure evidence
         if: failure() && steps.gate.outcome == 'failure'
         run: |
-          cp /tmp/issue9-cleanup.log ISSUE9_CLEANUP_FAILURE.txt
           git config user.name "ToolOS Build Bot"
           git config user.email "toolos-build-bot@users.noreply.github.com"
           git add apps/toolos-daemon crates/toolos-storage Cargo.lock ISSUE9_CLEANUP_FAILURE.txt
-          git commit -m "Record Issue 9 cleanup gate failure"
+          git commit -m "Record complete Issue 9 cleanup diagnostics"
           git push origin HEAD:build/winget-user-execution-issue9
       - name: Commit verified cleanup workflow
         if: success()
