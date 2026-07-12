@@ -1,0 +1,75 @@
+name: apply-issue10-adapter
+
+on:
+  pull_request:
+    branches: [build/winget-user-execution]
+    paths:
+      - tools/apply-issue10-adapter.py
+      - adapters/toolos-winget-adapter/src/verification.rs
+      - .github/workflows/apply-issue10-adapter.yml
+
+permissions:
+  contents: write
+
+jobs:
+  linux-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: build/winget-user-execution-issue10
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: python tools/apply-issue10-adapter.py
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy -p toolos-winget-adapter -p toolos-winget --all-targets -- -D warnings
+      - run: cargo test -p toolos-winget-adapter -p toolos-winget verification -- --nocapture
+
+  windows-verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: build/winget-user-execution-issue10
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: python tools/apply-issue10-adapter.py
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy -p toolos-winget-adapter -p toolos-winget --all-targets -- -D warnings
+      - run: cargo test -p toolos-winget-adapter verification -- --nocapture
+      - run: cargo test -p toolos-winget verification -- --nocapture
+
+  publish:
+    needs: [linux-verify, windows-verify]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: build/winget-user-execution-issue10
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: python tools/apply-issue10-adapter.py
+      - run: cargo fmt --all
+      - name: Publish verified adapter sources
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: build/winget-user-execution-issue10
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in adapters/toolos-winget-adapter/src/main.rs adapters/toolos-winget-adapter/src/verification.rs
+          do
+            sha=$(git rev-parse "HEAD:${path}")
+            content=$(base64 -w0 "${path}")
+            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${path}" \
+              -f message="Add official typed WinGet verification provider" \
+              -f content="${content}" \
+              -f branch="${TARGET_BRANCH}" \
+              -f sha="${sha}"
+          done
