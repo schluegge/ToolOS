@@ -39,6 +39,7 @@ use crate::{
 
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const TERMINATION_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(5);
+const ROOT_EXIT_ACCOUNTING_GRACE: Duration = Duration::from_millis(250);
 const OUTPUT_TRUNCATION_MARKER: &str = "\n[ToolOS truncated contained process output]";
 const STOP_NONE: u8 = 0;
 const STOP_TIMED_OUT: u8 = 1;
@@ -391,6 +392,7 @@ fn wait_for_completion(
     let stderr_reader = thread::spawn(move || read_bounded(stderr_file, stderr_limit));
 
     let mut root_exited = false;
+    let mut root_exited_at = None;
     let mut exit_code = None;
     let mut termination_requested_at = None;
     let mut containment_confirmed = false;
@@ -401,6 +403,7 @@ fn wait_for_completion(
         let wait = unsafe { WaitForSingleObject(process.raw(), 50) };
         if wait == WAIT_OBJECT_0 {
             root_exited = true;
+            root_exited_at.get_or_insert_with(Instant::now);
             exit_code = process_exit_code(process.raw())?;
         } else if wait == WAIT_FAILED {
             control
@@ -426,6 +429,16 @@ fn wait_for_completion(
             containment_confirmed = true;
             active_after_cleanup = Some(0);
             break;
+        }
+
+        if root_exited
+            && active > 0
+            && root_exited_at
+                .is_some_and(|exited_at| exited_at.elapsed() >= ROOT_EXIT_ACCOUNTING_GRACE)
+            && control.inner.requested_stop.load(Ordering::Acquire) == STOP_NONE
+        {
+            control.cancel(ProcessStopReason::ContainmentFailed)?;
+            termination_requested_at = Some(Instant::now());
         }
 
         if control.inner.requested_stop.load(Ordering::Acquire) == STOP_NONE

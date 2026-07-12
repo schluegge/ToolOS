@@ -98,6 +98,58 @@ async fn explicit_cancel_terminates_parent_and_grandchild() {
     );
 }
 
+#[tokio::test]
+async fn adapter_exit_with_live_descendant_is_terminated_fail_closed() {
+    let marker = unique_path("adapter-failure-survived.txt");
+    let ready = unique_path("adapter-failure-ready.txt");
+    remove_if_present(&marker);
+    remove_if_present(&ready);
+
+    let executable = fixture();
+    let mut spec = ContainedCommandSpec::new(&executable);
+    spec.args = vec![
+        "parent-detach".into(),
+        "--fixture".into(),
+        executable.into_os_string(),
+        "--marker".into(),
+        marker.as_os_str().to_owned(),
+        "--delay-ms".into(),
+        GRANDCHILD_DELAY_MS.to_string().into(),
+        "--ready".into(),
+        ready.as_os_str().to_owned(),
+    ];
+    spec.timeout = Duration::from_secs(30);
+
+    let started = Instant::now();
+    let output = spawn_contained(spec)
+        .expect("spawn detached-parent fixture")
+        .wait()
+        .await
+        .expect("wait for fail-closed containment");
+
+    assert!(ready.exists(), "detached grandchild never started");
+    assert_eq!(
+        output.containment.stop_reason,
+        ProcessStopReason::ContainmentFailed
+    );
+    assert_eq!(output.containment.active_processes_after_cleanup, Some(0));
+    assert!(output.containment.containment_confirmed);
+    assert!(
+        output.stderr.contains("DETACHED_PARENT_STDERR_READY"),
+        "adapter stderr emitted before failure was lost"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "adapter failure waited for the full execution timeout"
+    );
+
+    tokio::time::sleep(Duration::from_millis(GRANDCHILD_DELAY_MS + 500)).await;
+    assert!(
+        !marker.exists(),
+        "grandchild survived the unexpected root-process exit"
+    );
+}
+
 #[test]
 fn closing_last_job_handle_on_host_exit_terminates_grandchild() {
     let marker = unique_path("host-exit-survived.txt");

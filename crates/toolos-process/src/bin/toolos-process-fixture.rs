@@ -26,6 +26,7 @@ fn run() -> Result<(), String> {
     match mode.as_str() {
         "grandchild" => grandchild(&remaining),
         "parent" => parent(&remaining),
+        "parent-detach" => parent_detach(&remaining),
         "host-exit" => host_exit(&remaining),
         "output" => output(&remaining),
         _ => Err(format!("unknown fixture mode: {mode}")),
@@ -66,6 +67,31 @@ fn parent(arguments: &[std::ffi::OsString]) -> Result<(), String> {
     child
         .wait()
         .map_err(|error| format!("wait for grandchild: {error}"))?;
+    Ok(())
+}
+
+fn parent_detach(arguments: &[std::ffi::OsString]) -> Result<(), String> {
+    let fixture = required_path(arguments, "--fixture")?;
+    let marker = required_path(arguments, "--marker")?;
+    let delay = required_u64(arguments, "--delay-ms")?;
+    let ready = required_path(arguments, "--ready")?;
+
+    let child = Command::new(&fixture)
+        .arg("grandchild")
+        .arg("--marker")
+        .arg(&marker)
+        .arg("--delay-ms")
+        .arg(delay.to_string())
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|error| format!("spawn detached grandchild: {error}"))?;
+
+    println!("DETACHED_PARENT_EXITING grandchild_pid={}", child.id());
+    eprintln!("DETACHED_PARENT_STDERR_READY");
+    fs::write(ready, b"ready").map_err(|error| format!("write ready marker: {error}"))?;
+    drop(child);
     Ok(())
 }
 
