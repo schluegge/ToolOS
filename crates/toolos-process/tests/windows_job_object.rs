@@ -51,11 +51,11 @@ async fn timeout_terminates_parent_and_grandchild() {
         .await
         .expect("wait for timeout result");
 
-    assert!(ready.exists(), "fixture never proved the grandchild started");
-    assert_eq!(
-        output.containment.stop_reason,
-        ProcessStopReason::TimedOut
+    assert!(
+        ready.exists(),
+        "fixture never proved the grandchild started"
     );
+    assert_eq!(output.containment.stop_reason, ProcessStopReason::TimedOut);
     assert_eq!(output.containment.active_processes_after_cleanup, Some(0));
     assert!(output.containment.containment_confirmed);
 
@@ -83,10 +83,7 @@ async fn explicit_cancel_terminates_parent_and_grandchild() {
         .expect("cancel contained process tree");
     let output = contained.wait().await.expect("wait for cancelled tree");
 
-    assert_eq!(
-        output.containment.stop_reason,
-        ProcessStopReason::Cancelled
-    );
+    assert_eq!(output.containment.stop_reason, ProcessStopReason::Cancelled);
     assert_eq!(output.containment.active_processes_after_cleanup, Some(0));
     assert!(output.containment.containment_confirmed);
 
@@ -147,8 +144,12 @@ async fn output_capture_is_independently_bounded() {
 
     assert!(output.stdout.len() < 4_200);
     assert!(output.stderr.len() < 4_200);
-    assert!(output.stdout.contains("ToolOS truncated contained process output"));
-    assert!(output.stderr.contains("ToolOS truncated contained process output"));
+    assert!(output
+        .stdout
+        .contains("ToolOS truncated contained process output"));
+    assert!(output
+        .stderr
+        .contains("ToolOS truncated contained process output"));
     assert!(output.containment.containment_confirmed);
 }
 
