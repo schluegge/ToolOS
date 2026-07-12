@@ -1,0 +1,48 @@
+name: apply-issue10-domain
+
+on:
+  pull_request:
+    branches: [build/winget-user-execution]
+    paths:
+      - tools/apply-issue10-domain.py
+      - crates/toolos-winget/src/verification.rs
+      - .github/workflows/apply-issue10-domain.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-verify-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: build/winget-user-execution-issue10
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Apply and verify verification domain
+        run: |
+          python tools/apply-issue10-domain.py
+          cargo fmt --all
+          cargo clippy -p toolos-winget --all-targets -- -D warnings
+          cargo test -p toolos-winget verification -- --nocapture
+      - name: Publish verified domain sources
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: build/winget-user-execution-issue10
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in crates/toolos-winget/src/lib.rs crates/toolos-winget/src/verification.rs
+          do
+            sha=$(git rev-parse "HEAD:${path}")
+            content=$(base64 -w0 "${path}")
+            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${path}" \
+              -f message="Add locale-stable verification domain" \
+              -f content="${content}" \
+              -f branch="${TARGET_BRANCH}" \
+              -f sha="${sha}"
+          done
