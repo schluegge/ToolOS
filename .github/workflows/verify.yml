@@ -18,6 +18,7 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - run: python tools/issue8_adapter_failure.py
       - run: cargo fmt --all
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
@@ -56,6 +57,7 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - run: python tools/issue8_adapter_failure.py
       - run: cargo fmt --all
       - name: Windows workspace Clippy
         shell: pwsh
@@ -67,11 +69,15 @@ jobs:
         run: |
           cargo test -p toolos-process --lib --bins -- --nocapture 2>&1 | Tee-Object -FilePath issue8-unit-tests.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Native process-tree tests
+      - name: Native process-tree tests repeated five times
         shell: pwsh
         run: |
-          cargo test -p toolos-process --test windows_job_object -- --nocapture 2>&1 | Tee-Object -FilePath issue8-native-tests.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Remove-Item issue8-native-tests.log -ErrorAction SilentlyContinue
+          1..5 | ForEach-Object {
+            "=== native containment pass $_ of 5 ===" | Tee-Object -FilePath issue8-native-tests.log -Append
+            cargo test -p toolos-process --test windows_job_object -- --nocapture 2>&1 | Tee-Object -FilePath issue8-native-tests.log -Append
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - name: Windows workspace tests
         shell: pwsh
         run: |
@@ -86,10 +92,10 @@ jobs:
             issue8-unit-tests.log
             issue8-native-tests.log
             issue8-workspace-tests.log
-          if-no-files-found: warn
+          if-no-files-found: error
 
-  apply-verified-formatting:
-    name: Apply verified surface formatting
+  apply-verified-adapter-failure-containment:
+    name: Apply verified adapter-failure containment
     if: github.event_name == 'pull_request' && github.head_ref == 'build/winget-user-execution-issue8'
     needs: [rust, frontend, tauri-windows, windows-process-containment]
     runs-on: ubuntu-latest
@@ -103,16 +109,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+      - run: python tools/issue8_adapter_failure.py
       - run: cargo fmt --all
       - run: cargo generate-lockfile
-      - name: Commit verified formatting and lockfile
+      - name: Commit verified adapter-failure behavior
         run: |
           git config user.name "ToolOS Build Bot"
           git config user.email "toolos-build-bot@users.noreply.github.com"
-          git add Cargo.lock adapters/toolos-winget-adapter/src/main.rs apps/toolos-cli/src/main.rs
-          if git diff --cached --quiet; then
-            echo "No verified formatting changes required"
-            exit 0
-          fi
-          git commit -m "style: apply verified execution surface formatting"
+          git rm tools/issue8_adapter_failure.py
+          git add Cargo.lock crates/toolos-process/src/windows.rs crates/toolos-process/src/bin/toolos-process-fixture.rs crates/toolos-process/tests/windows_job_object.rs
+          git commit -m "test: terminate descendants after unexpected adapter exit"
           git push origin HEAD:build/winget-user-execution-issue8
