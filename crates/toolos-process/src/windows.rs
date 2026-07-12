@@ -18,8 +18,8 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
 use windows_sys::Win32::System::JobObjects::{
-    CreateJobObjectW, QueryInformationJobObject, SetInformationJobObject, TerminateJobObject,
-    JobObjectBasicAccountingInformation, JobObjectExtendedLimitInformation,
+    CreateJobObjectW, JobObjectBasicAccountingInformation, JobObjectExtendedLimitInformation,
+    QueryInformationJobObject, SetInformationJobObject, TerminateJobObject,
     JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
@@ -106,9 +106,8 @@ impl AttributeList {
         let mut storage = vec![0usize; words];
         let pointer = storage.as_mut_ptr().cast::<c_void>();
         // SAFETY: storage is writable, pointer-aligned, and at least the requested size.
-        let initialized = unsafe {
-            InitializeProcThreadAttributeList(pointer, attribute_count, 0, &mut bytes)
-        };
+        let initialized =
+            unsafe { InitializeProcThreadAttributeList(pointer, attribute_count, 0, &mut bytes) };
         if initialized == 0 {
             return Err(ContainmentError::ContainmentUnavailable(format!(
                 "InitializeProcThreadAttributeList failed with Win32 error {}",
@@ -280,8 +279,8 @@ pub fn spawn_contained(spec: ContainedCommandSpec) -> Result<ContainedProcess, C
     )?;
 
     let mut startup = STARTUPINFOEXW::default();
-    startup.StartupInfo.cb = u32::try_from(size_of::<STARTUPINFOEXW>())
-        .expect("startup structure fits u32");
+    startup.StartupInfo.cb =
+        u32::try_from(size_of::<STARTUPINFOEXW>()).expect("startup structure fits u32");
     startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
     startup.StartupInfo.hStdInput = stdin_pipe.child.raw();
     startup.StartupInfo.hStdOutput = stdout_pipe.child.raw();
@@ -313,7 +312,10 @@ pub fn spawn_contained(spec: ContainedCommandSpec) -> Result<ContainedProcess, C
         )));
     }
 
-    let process = OwnedHandle::new(process_information.hProcess, "CreateProcessW process handle")?;
+    let process = OwnedHandle::new(
+        process_information.hProcess,
+        "CreateProcessW process handle",
+    )?;
     let thread_handle = OwnedHandle::new(
         process_information.hThread,
         "CreateProcessW primary thread handle",
@@ -524,7 +526,11 @@ fn create_pipe(parent_writes: bool) -> Result<PipeEnds, ContainmentError> {
 
     let read = OwnedHandle::new(read_handle, "CreatePipe read handle")?;
     let write = OwnedHandle::new(write_handle, "CreatePipe write handle")?;
-    let parent_handle = if parent_writes { write.raw() } else { read.raw() };
+    let parent_handle = if parent_writes {
+        write.raw()
+    } else {
+        read.raw()
+    };
     // SAFETY: parent_handle is a valid pipe HANDLE; clearing inheritance is documented.
     let cleared = unsafe { SetHandleInformation(parent_handle, HANDLE_FLAG_INHERIT, 0) };
     if cleared == 0 {

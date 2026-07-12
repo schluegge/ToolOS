@@ -1053,6 +1053,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "toolos-process"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "thiserror",
+ "tokio",
+ "uuid",
+ "windows-sys",
+]
+
+[[package]]
 name = "toolos-storage"
 version = "0.1.0"
 dependencies = [
