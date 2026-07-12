@@ -7,8 +7,8 @@ use serde_json::{json, Value};
 use tokio::process::Command;
 use toolos_winget::{
     build_verification_report, git_recipe_evidence, normalize_selector,
-    parse_official_provider_json, OfficialProviderSnapshot, OfficialProviderStatus, PackageSelector,
-    ProcessEvidence, ScopeRoots, WingetVerificationReport, OFFICIAL_PROVIDER_CONTRACT,
+    parse_official_provider_json, OfficialProviderSnapshot, OfficialProviderStatus,
+    PackageSelector, ProcessEvidence, ScopeRoots, OFFICIAL_PROVIDER_CONTRACT,
 };
 
 const MAX_CAPTURE_BYTES: usize = 64 * 1024;
@@ -141,7 +141,11 @@ async fn recipe_probe(selector: &PackageSelector) -> Option<toolos_winget::Packa
     }
     let executable = find_executable(&["git.exe", "git"]);
     let Some(executable) = executable else {
-        return Some(git_recipe_evidence(None, None, &ScopeRoots::from_environment()));
+        return Some(git_recipe_evidence(
+            None,
+            None,
+            &ScopeRoots::from_environment(),
+        ));
     };
     let canonical = std::fs::canonicalize(&executable).unwrap_or(executable);
     let args = vec!["--version".to_owned()];
@@ -295,17 +299,20 @@ mod tests {
     #[test]
     fn executable_resolution_is_bounded_to_supplied_path_roots() {
         let directory = tempdir().expect("tempdir");
-        let executable = directory.path().join(if cfg!(windows) {
-            "tool.exe"
-        } else {
-            "tool"
-        });
+        let executable = directory
+            .path()
+            .join(if cfg!(windows) { "tool.exe" } else { "tool" });
         std::fs::write(&executable, b"fixture").expect("fixture");
         assert_eq!(
-            find_executable_in_paths(&[executable.file_name().unwrap().to_str().unwrap()], &[directory.path().to_path_buf()]),
+            find_executable_in_paths(
+                &[executable.file_name().unwrap().to_str().unwrap()],
+                &[directory.path().to_path_buf()]
+            ),
             Some(executable)
         );
-        assert!(find_executable_in_paths(&["missing"], &[directory.path().to_path_buf()]).is_none());
+        assert!(
+            find_executable_in_paths(&["missing"], &[directory.path().to_path_buf()]).is_none()
+        );
     }
 
     #[cfg(windows)]
@@ -321,7 +328,10 @@ mod tests {
         let recipe = recipe_probe(&selector).await.expect("Git recipe");
         assert!(recipe.executable_path.is_some());
         assert_eq!(
-            recipe.process_evidence.as_ref().and_then(|value| value.exit_code),
+            recipe
+                .process_evidence
+                .as_ref()
+                .and_then(|value| value.exit_code),
             Some(0)
         );
         assert!(recipe.parsed_version.is_some());
