@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://toolos.local/schemas/winget-install-execution.schema.json",
+  "title": "ToolOS governed WinGet install execution report",
+  "type": "object",
+  "required": [
+    "execution_id",
+    "plan_id",
+    "approval_id",
+    "plan_hash",
+    "status",
+    "selector",
+    "command",
+    "started_at",
+    "completed_at",
+    "process_evidence",
+    "containment_evidence",
+    "preflight_resolution",
+    "preflight_installed_state",
+    "post_install_state",
+    "execution_attempted",
+    "verification_claim",
+    "limitations",
+    "single_safest_next_action"
+  ],
+  "properties": {
+    "execution_id": { "type": "string", "format": "uuid" },
+    "plan_id": { "type": "string", "format": "uuid" },
+    "approval_id": { "type": "string", "format": "uuid" },
+    "plan_hash": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+    "status": {
+      "enum": [
+        "PROVIDER_SUCCEEDED_POST_STATE_UNVERIFIED",
+        "PROVIDER_FAILED",
+        "TIMED_OUT_CONTAINED",
+        "CANCELLED_CONTAINED",
+        "UNKNOWN_REQUIRES_RECOVERY"
+      ]
+    },
+    "selector": { "type": "object" },
+    "command": { "type": "object" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "process_evidence": { "$ref": "#/$defs/processEvidence" },
+    "containment_evidence": { "$ref": "#/$defs/containmentEvidence" },
+    "preflight_resolution": { "type": "object" },
+    "preflight_installed_state": { "type": "object" },
+    "post_install_state": { "type": ["object", "null"] },
+    "execution_attempted": { "const": true },
+    "verification_claim": { "type": "string", "minLength": 1 },
+    "limitations": { "type": "array", "items": { "type": "string" } },
+    "single_safest_next_action": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "processEvidence": {
+      "type": "object",
+      "required": [
+        "executable",
+        "args",
+        "exit_code",
+        "stdout",
+        "stderr",
+        "timed_out",
+        "duration_ms"
+      ],
+      "properties": {
+        "executable": { "type": "string", "minLength": 1 },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "exit_code": { "type": ["integer", "null"] },
+        "stdout": { "type": "string" },
+        "stderr": { "type": "string" },
+        "timed_out": { "type": "boolean" },
+        "duration_ms": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "containmentEvidence": {
+      "type": "object",
+      "required": [
+        "method",
+        "root_pid",
+        "stop_reason",
+        "active_processes_after_cleanup",
+        "descendants_terminated",
+        "containment_confirmed",
+        "detail"
+      ],
+      "properties": {
+        "method": {
+          "enum": ["WINDOWS_JOB_OBJECT_STARTUP_ATTRIBUTE"]
+        },
+        "root_pid": { "type": ["integer", "null"], "minimum": 1 },
+        "stop_reason": {
+          "enum": [
+            "EXITED",
+            "TIMED_OUT",
+            "CANCELLED",
+            "DAEMON_SHUTDOWN",
+            "CONTAINMENT_FAILED"
+          ]
+        },
+        "active_processes_after_cleanup": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "descendants_terminated": { "type": ["boolean", "null"] },
+        "containment_confirmed": { "type": "boolean" },
+        "detail": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "containment_confirmed": { "const": true } },
+            "required": ["containment_confirmed"]
+          },
+          "then": {
+            "properties": {
+              "active_processes_after_cleanup": { "const": 0 },
+              "descendants_terminated": { "const": true }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

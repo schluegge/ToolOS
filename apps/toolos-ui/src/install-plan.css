@@ -50,7 +50,11 @@
 .plan-command,
 .plan-list,
 .approval-box,
-.approval-receipt {
+.approval-receipt,
+.execution-box,
+.execution-result,
+.execution-recovery,
+.active-execution {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 14px;
@@ -59,7 +63,11 @@
 
 .plan-facts span,
 .approval-box span,
-.approval-receipt span {
+.approval-receipt span,
+.execution-box span,
+.execution-result span,
+.execution-recovery span,
+.active-execution span {
   display: block;
   color: var(--muted);
   font-size: 0.82rem;
@@ -68,7 +76,9 @@
 .plan-facts code,
 .plan-command code,
 .approval-box code,
-.approval-receipt code {
+.approval-receipt code,
+.execution-box code,
+.active-execution code {
   display: block;
   margin-top: 7px;
   overflow-wrap: anywhere;
@@ -117,12 +127,65 @@
   border-color: rgba(89, 190, 139, 0.55);
 }
 
+.execution-box {
+  border-color: rgba(232, 101, 101, 0.7);
+}
+
+.active-execution {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  align-items: center;
+  margin-top: 12px;
+  border-color: rgba(223, 178, 74, 0.65);
+}
+
+.active-execution span,
+.active-execution code {
+  grid-column: 1;
+}
+
+.cancel-execution {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  border-color: rgba(232, 101, 101, 0.72);
+}
+
+.execution-result {
+  border-color: rgba(89, 190, 139, 0.55);
+}
+
+.execution-result.recovery,
+.execution-recovery {
+  border-color: rgba(232, 101, 101, 0.78);
+  background: rgba(232, 101, 101, 0.08);
+}
+
+.execution-recovery {
+  display: grid;
+  gap: 8px;
+}
+
+.execution-result pre {
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 @media (max-width: 840px) {
   .install-plan-heading {
     flex-direction: column;
   }
 
-  .approval-controls {
+  .approval-controls,
+  .active-execution {
     grid-template-columns: 1fr;
+  }
+
+  .active-execution span,
+  .active-execution code,
+  .cancel-execution {
+    grid-column: 1;
+    grid-row: auto;
   }
 }

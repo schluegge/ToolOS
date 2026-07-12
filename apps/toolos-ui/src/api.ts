@@ -113,6 +113,23 @@ export type ProcessEvidence = {
   duration_ms: number;
 };
 
+export type ProcessStopReason =
+  | "EXITED"
+  | "TIMED_OUT"
+  | "CANCELLED"
+  | "DAEMON_SHUTDOWN"
+  | "CONTAINMENT_FAILED";
+
+export type ProcessContainmentEvidence = {
+  method: string;
+  root_pid: number | null;
+  stop_reason: ProcessStopReason;
+  active_processes_after_cleanup: number | null;
+  descendants_terminated: boolean | null;
+  containment_confirmed: boolean;
+  detail: string;
+};
+
 export type WingetResolutionReport = {
   provider_id: string;
   provider_version: string | null;
@@ -145,10 +162,25 @@ export type ApprovalChallenge = {
   expires_at: string;
 };
 
+export type InstallPlanStatus =
+  | "AWAITING_APPROVAL"
+  | "BLOCKED"
+  | "APPROVED_EXECUTION_DISABLED"
+  | "APPROVED_AWAITING_EXECUTION"
+  | "EXECUTING"
+  | "EXECUTION_SUCCEEDED_UNVERIFIED"
+  | "EXECUTION_FAILED"
+  | "EXECUTION_TIMED_OUT"
+  | "EXECUTION_CANCELLED"
+  | "RECOVERED_NO_PROCESS_STARTED"
+  | "RECOVERED_FROM_PERSISTED_PROVIDER_RESULT"
+  | "UNKNOWN_REQUIRES_RECOVERY"
+  | "EXPIRED";
+
 export type WingetInstallPlan = {
   plan_id: string;
   plan_hash: string;
-  status: "AWAITING_APPROVAL" | "BLOCKED" | "APPROVED_EXECUTION_DISABLED" | "EXPIRED";
+  status: InstallPlanStatus;
   selector: WingetPackageSelector;
   resolution: WingetResolutionReport;
   installed_state: WingetInstalledStateReport;
@@ -176,9 +208,38 @@ export type WingetInstallApprovalReceipt = {
   expires_at: string;
   lock_key: string;
   lock_expires_at: string;
-  status: "APPROVED_EXECUTION_DISABLED";
-  execution_enabled: false;
+  status: "APPROVED_AWAITING_EXECUTION";
+  execution_enabled: true;
+  execution_confirmation: string;
   limitations: string[];
+};
+
+export type WingetExecutionStatus =
+  | "PROVIDER_SUCCEEDED_POST_STATE_UNVERIFIED"
+  | "PROVIDER_FAILED"
+  | "TIMED_OUT_CONTAINED"
+  | "CANCELLED_CONTAINED"
+  | "UNKNOWN_REQUIRES_RECOVERY";
+
+export type WingetInstallExecutionReport = {
+  execution_id: string;
+  plan_id: string;
+  approval_id: string;
+  plan_hash: string;
+  status: WingetExecutionStatus;
+  selector: WingetPackageSelector;
+  command: CommandPreview;
+  started_at: string;
+  completed_at: string;
+  process_evidence: ProcessEvidence;
+  containment_evidence: ProcessContainmentEvidence;
+  preflight_resolution: WingetResolutionReport;
+  preflight_installed_state: WingetInstalledStateReport;
+  post_install_state: WingetInstalledStateReport | null;
+  execution_attempted: boolean;
+  verification_claim: string;
+  limitations: string[];
+  single_safest_next_action: string;
 };
 
 export type ResourceLock = {
@@ -193,6 +254,96 @@ export type WingetApprovalResult = {
   receipt: WingetInstallApprovalReceipt;
   lock: ResourceLock;
   evidence: EvidenceRecord;
+};
+
+export type WingetExecutionResult = {
+  plan: WingetInstallPlan;
+  report: WingetInstallExecutionReport;
+  evidence: EvidenceRecord;
+};
+
+export type ExecutionJournalPhase =
+  | "PREPARED"
+  | "SPAWN_INTENT"
+  | "SPAWNED"
+  | "PROVIDER_FINISHED"
+  | "FINALIZED";
+
+export type RecoveryStatus =
+  | "RECOVERED_NO_PROCESS_STARTED"
+  | "RECOVERED_FROM_PERSISTED_PROVIDER_RESULT"
+  | "FAILED_RESIDUALS_PRESENT"
+  | "UNKNOWN_REQUIRES_RECOVERY";
+
+export type WingetResidualStateManifest = {
+  selector: WingetPackageSelector;
+  captured_at: string;
+  provider_id: string;
+  provider_version: string | null;
+  installed_state: WingetInstalledStateReport;
+  path_environment_sha256: string;
+  path_entry_count: number;
+  observable_surfaces: string[];
+  unobserved_surfaces: string[];
+};
+
+export type WingetResidualStateDiff = {
+  provider_version_changed: boolean;
+  path_fingerprint_changed: boolean;
+  installed_evidence_changed: boolean;
+  definitive_installed_match_before: boolean | null;
+  definitive_installed_match_after: boolean | null;
+  observed_changes: string[];
+  limitations: string[];
+};
+
+export type WingetRecoveryReport = {
+  recovery_id: string;
+  execution_id: string;
+  plan_id: string;
+  journal_phase: ExecutionJournalPhase;
+  status: RecoveryStatus;
+  observed_at: string;
+  pre_state: WingetResidualStateManifest;
+  post_state: WingetResidualStateManifest | null;
+  residual_diff: WingetResidualStateDiff | null;
+  lock_retained: boolean;
+  mutable_operations_blocked: boolean;
+  limitations: string[];
+  single_safest_next_action: string;
+};
+
+export type RecoveryCleanupPlanStatus =
+  | "AWAITING_APPROVAL"
+  | "APPROVED_EXECUTION_DISABLED"
+  | "EXPIRED";
+
+export type WingetRecoveryCleanupPlan = {
+  cleanup_plan_id: string;
+  recovery_execution_id: string;
+  plan_hash: string;
+  status: RecoveryCleanupPlanStatus;
+  selector: WingetPackageSelector;
+  uninstall_preview: CommandPreview;
+  created_at: string;
+  expires_at: string;
+  approval_allowed: boolean;
+  approval_challenge: ApprovalChallenge | null;
+  execution_enabled: false;
+  inspection_steps: string[];
+  limitations: string[];
+  single_safest_next_action: string;
+};
+
+export type WingetRecoveryCleanupApprovalReceipt = {
+  approval_id: string;
+  cleanup_plan_id: string;
+  recovery_execution_id: string;
+  plan_hash: string;
+  approved_at: string;
+  status: "APPROVED_EXECUTION_DISABLED";
+  execution_enabled: false;
+  limitations: string[];
 };
 
 export type EvidenceRecord = {
@@ -250,6 +401,26 @@ export const api = {
       plan_hash: planHash,
       confirmation,
     }),
+  executeWingetInstallPlan: (
+    executionId: string,
+    planId: string,
+    approvalId: string,
+    confirmation: string,
+  ) =>
+    daemonRequest<WingetExecutionResult>("winget.install.execute", {
+      execution_id: executionId,
+      plan_id: planId,
+      approval_id: approvalId,
+      confirmation,
+    }),
+  cancelWingetInstallExecution: (executionId: string) =>
+    daemonRequest<{
+      execution_id: string;
+      plan_id: string;
+      cancel_requested: boolean;
+    }>("winget.install.cancel", {
+      execution_id: executionId,
+    }),
   getWingetInstallPlan: (planId: string) =>
     daemonRequest<WingetInstallPlan>("winget.install.plan.get", {
       plan_id: planId,
@@ -260,6 +431,31 @@ export const api = {
       active: boolean;
       lock: ResourceLock | null;
     }>("winget.install.lock"),
+  listWingetRecoveryReports: () =>
+    daemonRequest<WingetRecoveryReport[]>("winget.recovery.list"),
+  getWingetRecoveryReport: (executionId: string) =>
+    daemonRequest<WingetRecoveryReport>("winget.recovery.get", {
+      execution_id: executionId,
+    }),
+  createWingetRecoveryCleanupPlan: (executionId: string) =>
+    daemonRequest<{ plan: WingetRecoveryCleanupPlan; evidence: EvidenceRecord }>(
+      "winget.recovery.cleanup.plan",
+      { execution_id: executionId },
+    ),
+  approveWingetRecoveryCleanupPlan: (
+    cleanupPlanId: string,
+    planHash: string,
+    confirmation: string,
+  ) =>
+    daemonRequest<{
+      plan: WingetRecoveryCleanupPlan;
+      receipt: WingetRecoveryCleanupApprovalReceipt;
+      evidence: EvidenceRecord;
+    }>("winget.recovery.cleanup.approve", {
+      cleanup_plan_id: cleanupPlanId,
+      plan_hash: planHash,
+      confirmation,
+    }),
   listEvidence: (limit = 20) =>
     daemonRequest<EvidenceRecord[]>("evidence.list", { limit }),
 };

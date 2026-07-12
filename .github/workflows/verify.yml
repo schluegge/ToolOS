@@ -21,6 +21,9 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - run: python -m json.tool schemas/winget-install-execution.schema.json > /dev/null
+      - run: python -m json.tool schemas/winget-recovery-report.schema.json > /dev/null
+      - run: python -m json.tool schemas/winget-recovery-cleanup-plan.schema.json > /dev/null
 
   frontend:
     name: React frontend
@@ -31,7 +34,7 @@ jobs:
         with:
           node-version: 24
       - run: corepack enable
-      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/toolos-ui check
       - run: pnpm --dir apps/toolos-ui build
 
@@ -45,3 +48,48 @@ jobs:
         with:
           workspaces: apps/toolos-ui/src-tauri
       - run: cargo check --manifest-path apps/toolos-ui/src-tauri/Cargo.toml
+
+  windows-process-containment:
+    name: Windows process containment
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - name: Windows workspace Clippy
+        shell: pwsh
+        run: |
+          cargo clippy --workspace --all-targets -- -D warnings 2>&1 | Tee-Object -FilePath issue8-windows.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Unit tests
+        shell: pwsh
+        run: |
+          cargo test -p toolos-process --lib --bins -- --nocapture 2>&1 | Tee-Object -FilePath issue8-unit-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Native process-tree tests repeated five times
+        shell: pwsh
+        run: |
+          Remove-Item issue8-native-tests.log -ErrorAction SilentlyContinue
+          1..5 | ForEach-Object {
+            "=== native containment pass $_ of 5 ===" | Tee-Object -FilePath issue8-native-tests.log -Append
+            cargo test -p toolos-process --test windows_job_object -- --nocapture 2>&1 | Tee-Object -FilePath issue8-native-tests.log -Append
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Windows workspace tests
+        shell: pwsh
+        run: |
+          cargo test --workspace 2>&1 | Tee-Object -FilePath issue8-workspace-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue8-windows-diagnostics
+          path: |
+            issue8-windows.log
+            issue8-unit-tests.log
+            issue8-native-tests.log
+            issue8-workspace-tests.log
+          if-no-files-found: error

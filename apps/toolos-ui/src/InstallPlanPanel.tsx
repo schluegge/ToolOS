@@ -3,6 +3,7 @@ import {
   api,
   type ResourceLock,
   type WingetInstallApprovalReceipt,
+  type WingetInstallExecutionReport,
   type WingetInstallPlan,
   type WingetPackageSelector,
 } from "./api";
@@ -21,9 +22,13 @@ export function InstallPlanPanel({ selector, disabled = false, onEvidence }: Pro
   const [receipt, setReceipt] = useState<WingetInstallApprovalReceipt | null>(null);
   const [lock, setLock] = useState<ResourceLock | null>(null);
   const [confirmation, setConfirmation] = useState("");
+  const [executionConfirmation, setExecutionConfirmation] = useState("");
+  const [execution, setExecution] = useState<WingetInstallExecutionReport | null>(null);
+  const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
+  const [cancelRequested, setCancelRequested] = useState(false);
   const [state, setState] = useState<State>("idle");
   const [message, setMessage] = useState(
-    "Create a short-lived dry-run plan that binds identity, installed-state evidence, command, approval, and lock.",
+    "Create a short-lived plan that binds identity, installed-state evidence, command, approval, and lock.",
   );
 
   const createPlan = async () => {
@@ -31,6 +36,10 @@ export function InstallPlanPanel({ selector, disabled = false, onEvidence }: Pro
     setReceipt(null);
     setLock(null);
     setConfirmation("");
+    setExecutionConfirmation("");
+    setExecution(null);
+    setActiveExecutionId(null);
+    setCancelRequested(false);
     setMessage("Resolving identity and installed state, then hashing an immutable plan…");
     try {
       const result = await api.createWingetInstallPlan(selector);
@@ -66,20 +75,77 @@ export function InstallPlanPanel({ selector, disabled = false, onEvidence }: Pro
     }
   };
 
+  const execute = async () => {
+    if (!plan || !receipt) return;
+    const executionId = globalThis.crypto.randomUUID();
+    setActiveExecutionId(executionId);
+    setCancelRequested(false);
+    setExecution(null);
+    setState("loading");
+    setMessage(
+      "Revalidating the pinned plan, consuming the one-time receipt, and launching WinGet inside a Windows Job Object…",
+    );
+    try {
+      const result = await api.executeWingetInstallPlan(
+        executionId,
+        plan.plan_id,
+        receipt.approval_id,
+        executionConfirmation,
+      );
+      setPlan(result.plan);
+      setExecution(result.report);
+      if (result.report.status !== "UNKNOWN_REQUIRES_RECOVERY") {
+        setLock(null);
+      }
+      await onEvidence();
+      setState("ready");
+      setMessage(result.report.single_safest_next_action);
+    } catch (error) {
+      setState("error");
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setActiveExecutionId(null);
+    }
+  };
+
+  const cancelExecution = async () => {
+    if (!activeExecutionId || cancelRequested) return;
+    setCancelRequested(true);
+    setMessage("Requesting termination of the complete WinGet Job Object…");
+    try {
+      await api.cancelWingetInstallExecution(activeExecutionId);
+      setMessage(
+        "Cancellation requested. ToolOS is waiting for Job Object accounting to confirm zero active processes.",
+      );
+    } catch (error) {
+      setCancelRequested(false);
+      setState("error");
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const copyExecutionPhrase = async () => {
+    if (receipt?.execution_confirmation) {
+      await navigator.clipboard.writeText(receipt.execution_confirmation);
+    }
+  };
+
   const copyPhrase = async () => {
     const phrase = plan?.approval_challenge?.required_phrase;
     if (phrase) await navigator.clipboard.writeText(phrase);
   };
 
+  const recoveryRequired = execution?.status === "UNKNOWN_REQUIRES_RECOVERY";
+
   return (
     <section className="install-plan" aria-label="Governed installation plan">
       <div className="install-plan-heading">
         <div>
-          <p className="eyebrow">Governed dry run</p>
-          <h3>Build an immutable install plan</h3>
+          <p className="eyebrow">Governed installation</p>
+          <h3>Plan, approve, contain, and verify</h3>
           <p>
-            This writes only ToolOS metadata. It never invokes <code>winget install</code>,
-            accepts agreements, requests elevation, or bypasses hashes.
+            Planning and approval write only ToolOS metadata. Real execution is a separate,
+            receipt-bound step restricted to a pinned user-scope command and a Windows Job Object.
           </p>
         </div>
         <button
@@ -103,7 +169,7 @@ export function InstallPlanPanel({ selector, disabled = false, onEvidence }: Pro
             <Fact label="Plan hash" value={plan.plan_hash} mono />
             <Fact label="Expires" value={formatDate(plan.expires_at)} />
             <Fact label="Lock" value={plan.lock_key} mono />
-            <Fact label="Execution" value={plan.execution_enabled ? "Enabled" : "Disabled"} />
+            <Fact label="Execution" value={plan.execution_enabled ? "Armed" : "Disabled"} />
           </div>
 
           <article className="plan-command">
@@ -115,10 +181,7 @@ export function InstallPlanPanel({ selector, disabled = false, onEvidence }: Pro
           {plan.blockers.length ? (
             <PlanList title="Blocking conditions" items={plan.blockers} tone="blocked" />
           ) : null}
-          <PlanList
-            title="Required before future execution"
-            items={plan.pre_execution_requirements}
-          />
+          <PlanList title="Required before execution" items={plan.pre_execution_requirements} />
           <PlanList title="Verification contract" items={plan.verification} />
           <PlanList title="Rollback boundary" items={plan.rollback} />
 
@@ -152,10 +215,96 @@ export function InstallPlanPanel({ selector, disabled = false, onEvidence }: Pro
 
           {receipt && lock ? (
             <div className="approval-receipt">
-              <strong>Approved, execution still disabled</strong>
+              <strong>Armed; a separate exact execution phrase is still required</strong>
               <span>Approval {receipt.approval_id}</span>
               <span>Local lock held until {formatDate(lock.expires_at)}</span>
               <code>{receipt.plan_hash}</code>
+            </div>
+          ) : null}
+
+          {receipt && lock ? (
+            <div className="execution-box">
+              <div>
+                <strong>Execute the pinned user-scope plan</strong>
+                <span>
+                  Real machine mutation. Requires explicit version, architecture, user scope,
+                  fresh provider evidence, the active lock, and this one-time receipt.
+                </span>
+              </div>
+              <code>{receipt.execution_confirmation}</code>
+              {activeExecutionId ? (
+                <div className="active-execution">
+                  <span>Active execution</span>
+                  <code>{activeExecutionId}</code>
+                  <button
+                    className="cancel-execution"
+                    type="button"
+                    onClick={() => void cancelExecution()}
+                    disabled={cancelRequested}
+                  >
+                    {cancelRequested ? "Cancellation requested" : "Cancel execution"}
+                  </button>
+                </div>
+              ) : null}
+              <div className="approval-controls">
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() => void copyExecutionPhrase()}
+                >
+                  Copy execution phrase
+                </button>
+                <input
+                  value={executionConfirmation}
+                  onChange={(event) => setExecutionConfirmation(event.target.value)}
+                  placeholder="Paste the exact execution phrase"
+                  aria-label="Execution phrase"
+                />
+                <button
+                  type="button"
+                  onClick={() => void execute()}
+                  disabled={
+                    disabled ||
+                    state === "loading" ||
+                    !executionConfirmation.trim() ||
+                    !plan.execution_enabled ||
+                    !receipt.execution_enabled ||
+                    plan.selector.scope !== "user" ||
+                    !plan.selector.version ||
+                    !plan.selector.architecture
+                  }
+                >
+                  Execute approved install
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {recoveryRequired ? (
+            <div className="execution-recovery" role="alert">
+              <strong>Recovery inspection required</strong>
+              <span>
+                ToolOS did not prove zero active processes. The WinGet lock remains held and no
+                new package plan should be created.
+              </span>
+              <span>{execution.single_safest_next_action}</span>
+            </div>
+          ) : null}
+
+          {execution ? (
+            <div className={`execution-result ${recoveryRequired ? "recovery" : ""}`}>
+              <strong>{execution.status}</strong>
+              <span>{execution.verification_claim}</span>
+              <span>Exit code: {execution.process_evidence.exit_code ?? "Unavailable"}</span>
+              <span>Duration: {execution.process_evidence.duration_ms} ms</span>
+              <span>Containment: {execution.containment_evidence.method}</span>
+              <span>Root PID: {execution.containment_evidence.root_pid ?? "Unavailable"}</span>
+              <span>Stop reason: {execution.containment_evidence.stop_reason}</span>
+              <span>
+                Active processes after cleanup: {" "}
+                {execution.containment_evidence.active_processes_after_cleanup ?? "Unconfirmed"}
+              </span>
+              <pre>{formatProviderOutput(execution)}</pre>
             </div>
           ) : null}
 
@@ -194,6 +343,17 @@ function PlanList({
       </ul>
     </article>
   );
+}
+
+function formatProviderOutput(execution: WingetInstallExecutionReport) {
+  const sections = [];
+  if (execution.process_evidence.stdout) {
+    sections.push(`[stdout]\n${execution.process_evidence.stdout}`);
+  }
+  if (execution.process_evidence.stderr) {
+    sections.push(`[stderr]\n${execution.process_evidence.stderr}`);
+  }
+  return sections.join("\n\n") || "No provider output was captured.";
 }
 
 function formatDate(value: string) {

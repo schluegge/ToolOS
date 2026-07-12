@@ -1,18 +1,44 @@
+use std::io::ErrorKind;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use serde_json::{json, Value};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
+use tokio::sync::mpsc;
 use toolos_domain::{RpcRequest, RpcResponse, ADAPTER_PROTOCOL_VERSION};
 use toolos_winget::{
     identity_probe, install_preview, installed_probe, normalize_selector, uninstall_preview,
-    version_probe, InstalledQueryStatus, PackageSelector, ProcessEvidence, ResolutionStatus,
-    WingetInstalledStateReport, WingetResolutionReport,
+    validate_execution_request, version_probe, InstalledQueryStatus, PackageSelector,
+    ProcessEvidence, ResolutionStatus, WingetInstallExecutionRequest, WingetInstalledStateReport,
+    WingetResolutionReport,
 };
 
 const MAX_CAPTURE_BYTES: usize = 64 * 1024;
+const STREAM_CHANNEL_CAPACITY: usize = 16;
+const TRUNCATION_MARKER: &str = "\n[ToolOS truncated provider output at 65536 bytes]";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProviderStream {
+    Stdout,
+    Stderr,
+}
+
+impl ProviderStream {
+    fn prefix(self) -> &'static [u8] {
+        match self {
+            Self::Stdout => b"[winget stdout] ",
+            Self::Stderr => b"[winget stderr] ",
+        }
+    }
+}
+
+#[derive(Debug)]
+struct StreamChunk {
+    stream: ProviderStream,
+    bytes: Vec<u8>,
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -49,6 +75,7 @@ async fn handle_request(request: RpcRequest) -> RpcResponse {
         "adapter.health" => adapter_health().await,
         "winget.resolve" => resolve_request(request.params.clone()).await,
         "winget.installed" => installed_request(request.params.clone()).await,
+        "winget.install.execute" => execute_install_request(request.params.clone()).await,
         _ => Err(format!("unknown adapter method: {}", request.method)),
     };
 
@@ -72,7 +99,8 @@ async fn adapter_health() -> Result<Value, String> {
                 "package.resolve.winget",
                 "package.installed.query.winget",
                 "package.preview.install",
-                "package.preview.uninstall"
+                "package.preview.uninstall",
+                "package.install.execute.winget.user"
             ]
         })),
         Err(error) => Ok(json!({
@@ -208,6 +236,19 @@ async fn installed_request(params: Value) -> Result<Value, String> {
     serde_json::to_value(report).map_err(|error| error.to_string())
 }
 
+async fn execute_install_request(params: Value) -> Result<Value, String> {
+    let request = serde_json::from_value::<WingetInstallExecutionRequest>(params)
+        .map_err(|error| format!("winget.install.execute requires a valid request: {error}"))?;
+    let command = validate_execution_request(&request)?;
+    let evidence = run_command_with_live_tee(
+        &command.executable,
+        &command.args,
+        Duration::from_secs(30 * 60),
+    )
+    .await?;
+    serde_json::to_value(evidence).map_err(|error| error.to_string())
+}
+
 fn parse_selector(params: Value, method: &str) -> Result<PackageSelector, String> {
     let selector = serde_json::from_value::<PackageSelector>(params)
         .map_err(|error| format!("{method} requires a valid package selector: {error}"))?;
@@ -264,6 +305,189 @@ async fn run_command(
     }
 }
 
+async fn run_command_with_live_tee(
+    executable: &str,
+    args: &[String],
+    timeout: Duration,
+) -> Result<ProcessEvidence, String> {
+    let started = Instant::now();
+    let mut child = Command::new(executable)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|error| format!("cannot start {executable}: {error}"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| format!("{executable} stdout pipe unavailable"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| format!("{executable} stderr pipe unavailable"))?;
+
+    let (sender, receiver) = mpsc::channel(STREAM_CHANNEL_CAPACITY);
+    let stdout_sender = sender.clone();
+    let stdout_task = tokio::spawn(capture_stream(
+        stdout,
+        ProviderStream::Stdout,
+        stdout_sender,
+        MAX_CAPTURE_BYTES,
+    ));
+    let stderr_task = tokio::spawn(capture_stream(
+        stderr,
+        ProviderStream::Stderr,
+        sender,
+        MAX_CAPTURE_BYTES,
+    ));
+    let mirror_task = tokio::spawn(mirror_streams(receiver));
+
+    let (exit_code, timed_out, wait_error) = match tokio::time::timeout(timeout, child.wait()).await
+    {
+        Ok(Ok(status)) => (status.code(), false, None),
+        Ok(Err(error)) => (
+            None,
+            false,
+            Some(format!("failed while waiting for {executable}: {error}")),
+        ),
+        Err(_) => {
+            let mut errors = Vec::new();
+            if let Err(error) = child.kill().await {
+                if error.kind() != ErrorKind::InvalidInput {
+                    errors.push(format!("failed to kill timed-out {executable}: {error}"));
+                }
+            }
+            if let Err(error) = child.wait().await {
+                errors.push(format!("failed to reap timed-out {executable}: {error}"));
+            }
+            let wait_error = (!errors.is_empty()).then(|| errors.join("; "));
+            (None, true, wait_error)
+        }
+    };
+
+    let stdout_capture = stdout_task
+        .await
+        .map_err(|error| format!("stdout capture task failed: {error}"))??;
+    let stderr_capture = stderr_task
+        .await
+        .map_err(|error| format!("stderr capture task failed: {error}"))??;
+    mirror_task
+        .await
+        .map_err(|error| format!("provider mirror task failed: {error}"))??;
+
+    let mut stderr_text = captured_text(stderr_capture);
+    if let Some(error) = wait_error {
+        if !stderr_text.is_empty() {
+            stderr_text.push('\n');
+        }
+        stderr_text.push_str(&error);
+    }
+    if timed_out {
+        if !stderr_text.is_empty() {
+            stderr_text.push('\n');
+        }
+        stderr_text.push_str(&format!("command exceeded {} seconds", timeout.as_secs()));
+    }
+
+    Ok(ProcessEvidence {
+        executable: executable.to_owned(),
+        args: args.to_vec(),
+        exit_code,
+        stdout: captured_text(stdout_capture),
+        stderr: stderr_text,
+        timed_out,
+        duration_ms: duration_ms(started.elapsed()),
+    })
+}
+
+async fn capture_stream<R>(
+    mut reader: R,
+    stream: ProviderStream,
+    sender: mpsc::Sender<StreamChunk>,
+    limit: usize,
+) -> Result<CapturedBytes, String>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut captured = CapturedBytes::new(limit);
+    let mut buffer = vec![0u8; 8 * 1024];
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .await
+            .map_err(|error| format!("read {stream:?}: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        captured.append(&buffer[..read]);
+        let _ = sender
+            .send(StreamChunk {
+                stream,
+                bytes: buffer[..read].to_vec(),
+            })
+            .await;
+    }
+    Ok(captured)
+}
+
+async fn mirror_streams(mut receiver: mpsc::Receiver<StreamChunk>) -> Result<(), String> {
+    let mut stderr = tokio::io::stderr();
+    while let Some(chunk) = receiver.recv().await {
+        stderr
+            .write_all(chunk.stream.prefix())
+            .await
+            .map_err(|error| format!("write provider stream prefix: {error}"))?;
+        stderr
+            .write_all(&chunk.bytes)
+            .await
+            .map_err(|error| format!("mirror provider stream: {error}"))?;
+        if !chunk.bytes.ends_with(b"\n") {
+            stderr
+                .write_all(b"\n")
+                .await
+                .map_err(|error| format!("terminate provider mirror line: {error}"))?;
+        }
+    }
+    stderr
+        .flush()
+        .await
+        .map_err(|error| format!("flush provider mirror: {error}"))
+}
+
+#[derive(Debug)]
+struct CapturedBytes {
+    bytes: Vec<u8>,
+    limit: usize,
+    truncated: bool,
+}
+
+impl CapturedBytes {
+    fn new(limit: usize) -> Self {
+        Self {
+            bytes: Vec::with_capacity(limit.min(8 * 1024)),
+            limit,
+            truncated: false,
+        }
+    }
+
+    fn append(&mut self, bytes: &[u8]) {
+        let remaining = self.limit.saturating_sub(self.bytes.len());
+        let retained = bytes.len().min(remaining);
+        self.bytes.extend_from_slice(&bytes[..retained]);
+        self.truncated |= retained < bytes.len();
+    }
+}
+
+fn captured_text(captured: CapturedBytes) -> String {
+    let mut text = String::from_utf8_lossy(&captured.bytes).into_owned();
+    if captured.truncated {
+        text.push_str(TRUNCATION_MARKER);
+    }
+    text
+}
+
 fn provider_version(evidence: &ProcessEvidence) -> Option<String> {
     evidence
         .stdout
@@ -275,12 +499,9 @@ fn provider_version(evidence: &ProcessEvidence) -> Option<String> {
 }
 
 fn bounded_text(bytes: &[u8]) -> String {
-    let limit = bytes.len().min(MAX_CAPTURE_BYTES);
-    let mut text = String::from_utf8_lossy(&bytes[..limit]).into_owned();
-    if bytes.len() > MAX_CAPTURE_BYTES {
-        text.push_str("\n[ToolOS truncated provider output at 65536 bytes]");
-    }
-    text
+    let mut captured = CapturedBytes::new(MAX_CAPTURE_BYTES);
+    captured.append(bytes);
+    captured_text(captured)
 }
 
 fn duration_ms(duration: Duration) -> u64 {
@@ -297,6 +518,31 @@ mod tests {
         let text = bounded_text(&bytes);
         assert!(text.contains("ToolOS truncated provider output"));
         assert!(text.len() < MAX_CAPTURE_BYTES + 100);
+    }
+
+    #[test]
+    fn chunked_capture_marks_only_real_overflow() {
+        let mut captured = CapturedBytes::new(4);
+        captured.append(b"ab");
+        captured.append(b"cd");
+        assert_eq!(captured_text(captured), "abcd");
+
+        let mut captured = CapturedBytes::new(4);
+        captured.append(b"abc");
+        captured.append(b"def");
+        let text = captured_text(captured);
+        assert!(text.starts_with("abcd"));
+        assert!(text.contains("ToolOS truncated provider output"));
+    }
+
+    #[test]
+    fn live_tee_stream_prefixes_are_unambiguous() {
+        assert_eq!(ProviderStream::Stdout.prefix(), b"[winget stdout] ");
+        assert_eq!(ProviderStream::Stderr.prefix(), b"[winget stderr] ");
+        assert_ne!(
+            ProviderStream::Stdout.prefix(),
+            ProviderStream::Stderr.prefix()
+        );
     }
 
     #[test]

@@ -2,6 +2,7 @@ use anyhow::{anyhow, Context};
 use clap::{Parser, Subcommand, ValueEnum};
 use serde_json::{json, Value};
 use toolos_domain::{RpcRequest, RpcResponse};
+use uuid::Uuid;
 
 #[derive(Debug, Parser)]
 #[command(name = "toolos", version, about = "ToolOS local control-plane CLI")]
@@ -85,12 +86,50 @@ enum Command {
         #[arg(long)]
         confirmation: String,
     },
+    /// Execute one approved, pinned user-scope plan inside a Windows Job Object.
+    WingetInstallExecute {
+        /// Stable ID used by a second CLI process to request cancellation.
+        #[arg(long)]
+        execution_id: Option<String>,
+        #[arg(long)]
+        plan_id: String,
+        #[arg(long)]
+        approval_id: String,
+        #[arg(long)]
+        confirmation: String,
+    },
+    /// Request cancellation of one active contained WinGet execution.
+    WingetInstallCancel {
+        #[arg(long)]
+        execution_id: String,
+    },
     /// Show the current ToolOS WinGet package-manager lock.
     WingetInstallLock,
     /// Get one persisted install plan by UUID.
     WingetInstallPlanGet {
         #[arg(long)]
         plan_id: String,
+    },
+    /// List persisted WinGet execution-recovery reports.
+    WingetRecoveryList,
+    /// Get one persisted WinGet execution-recovery report.
+    WingetRecoveryGet {
+        #[arg(long)]
+        execution_id: String,
+    },
+    /// Create an immutable execution-disabled recovery cleanup plan.
+    WingetRecoveryCleanupPlan {
+        #[arg(long)]
+        execution_id: String,
+    },
+    /// Approve recovery cleanup intent while execution remains disabled.
+    WingetRecoveryCleanupApprove {
+        #[arg(long)]
+        cleanup_plan_id: String,
+        #[arg(long)]
+        plan_hash: String,
+        #[arg(long)]
+        confirmation: String,
     },
     /// List persisted evidence records.
     Evidence {
@@ -174,10 +213,56 @@ async fn main() -> anyhow::Result<()> {
                 "confirmation": confirmation
             }),
         ),
+        Command::WingetInstallExecute {
+            execution_id,
+            plan_id,
+            approval_id,
+            confirmation,
+        } => {
+            let execution_id = execution_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+            eprintln!("ToolOS execution ID: {execution_id}");
+            eprintln!(
+                "Cancel from another terminal with: toolos winget-install-cancel --execution-id {execution_id}"
+            );
+            (
+                "winget.install.execute".to_owned(),
+                json!({
+                    "execution_id": execution_id,
+                    "plan_id": plan_id,
+                    "approval_id": approval_id,
+                    "confirmation": confirmation
+                }),
+            )
+        }
+        Command::WingetInstallCancel { execution_id } => (
+            "winget.install.cancel".to_owned(),
+            json!({"execution_id": execution_id}),
+        ),
         Command::WingetInstallLock => ("winget.install.lock".to_owned(), json!({})),
         Command::WingetInstallPlanGet { plan_id } => (
             "winget.install.plan.get".to_owned(),
             json!({"plan_id": plan_id}),
+        ),
+        Command::WingetRecoveryList => ("winget.recovery.list".to_owned(), json!({})),
+        Command::WingetRecoveryGet { execution_id } => (
+            "winget.recovery.get".to_owned(),
+            json!({"execution_id": execution_id}),
+        ),
+        Command::WingetRecoveryCleanupPlan { execution_id } => (
+            "winget.recovery.cleanup.plan".to_owned(),
+            json!({"execution_id": execution_id}),
+        ),
+        Command::WingetRecoveryCleanupApprove {
+            cleanup_plan_id,
+            plan_hash,
+            confirmation,
+        } => (
+            "winget.recovery.cleanup.approve".to_owned(),
+            json!({
+                "cleanup_plan_id": cleanup_plan_id,
+                "plan_hash": plan_hash,
+                "confirmation": confirmation
+            }),
         ),
         Command::Evidence { limit } => ("evidence.list".to_owned(), json!({"limit": limit})),
         Command::Events { limit } => ("events.replay".to_owned(), json!({"limit": limit})),
@@ -293,6 +378,85 @@ mod tests {
         ])
         .expect("parse approval");
         assert!(matches!(cli.command, Command::WingetInstallApprove { .. }));
+    }
+
+    #[test]
+    fn clap_parses_governed_install_execution_and_cancel() {
+        let cli = Cli::try_parse_from([
+            "toolos",
+            "winget-install-execute",
+            "--execution-id",
+            "00000000-0000-0000-0000-000000000003",
+            "--plan-id",
+            "00000000-0000-0000-0000-000000000001",
+            "--approval-id",
+            "00000000-0000-0000-0000-000000000002",
+            "--confirmation",
+            "EXECUTE INSTALL Git.Git abcdef123456",
+        ])
+        .expect("parse execution");
+        match cli.command {
+            Command::WingetInstallExecute { execution_id, .. } => {
+                assert_eq!(
+                    execution_id.as_deref(),
+                    Some("00000000-0000-0000-0000-000000000003")
+                );
+            }
+            _ => panic!("wrong command"),
+        }
+
+        let cli = Cli::try_parse_from([
+            "toolos",
+            "winget-install-cancel",
+            "--execution-id",
+            "00000000-0000-0000-0000-000000000003",
+        ])
+        .expect("parse cancel");
+        assert!(matches!(cli.command, Command::WingetInstallCancel { .. }));
+    }
+
+    #[test]
+    fn clap_parses_recovery_commands() {
+        let cli =
+            Cli::try_parse_from(["toolos", "winget-recovery-list"]).expect("parse recovery list");
+        assert!(matches!(cli.command, Command::WingetRecoveryList));
+
+        let cli = Cli::try_parse_from([
+            "toolos",
+            "winget-recovery-get",
+            "--execution-id",
+            "00000000-0000-0000-0000-000000000003",
+        ])
+        .expect("parse recovery get");
+        assert!(matches!(cli.command, Command::WingetRecoveryGet { .. }));
+
+        let cli = Cli::try_parse_from([
+            "toolos",
+            "winget-recovery-cleanup-plan",
+            "--execution-id",
+            "00000000-0000-0000-0000-000000000003",
+        ])
+        .expect("parse cleanup plan");
+        assert!(matches!(
+            cli.command,
+            Command::WingetRecoveryCleanupPlan { .. }
+        ));
+
+        let cli = Cli::try_parse_from([
+            "toolos",
+            "winget-recovery-cleanup-approve",
+            "--cleanup-plan-id",
+            "00000000-0000-0000-0000-000000000004",
+            "--plan-hash",
+            "abcdef",
+            "--confirmation",
+            "APPROVE RECOVERY CLEANUP 00000000-0000-0000-0000-000000000003 abcdef",
+        ])
+        .expect("parse cleanup approval");
+        assert!(matches!(
+            cli.command,
+            Command::WingetRecoveryCleanupApprove { .. }
+        ));
     }
 
     #[test]
