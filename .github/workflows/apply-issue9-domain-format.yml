@@ -23,13 +23,26 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Format and verify domain
+      - name: Restore parent contract and verify domain
         id: gate
         shell: bash
         run: |
           set -o pipefail
           rm -f ISSUE9_DOMAIN_FAILURE.txt
           {
+            git show origin/build/winget-user-execution:crates/toolos-winget/src/lib.rs > /tmp/winget-lib.rs
+            python - <<'PY'
+          from pathlib import Path
+          path = Path('/tmp/winget-lib.rs')
+          source = path.read_text(encoding='utf-8')
+          old = 'mod execution;\npub use execution::*;\n'
+          new = 'mod execution;\nmod recovery;\npub use execution::*;\npub use recovery::*;\n'
+          if source.count(old) != 1:
+              raise SystemExit(f'expected one module marker, found {source.count(old)}')
+          Path('crates/toolos-winget/src/lib.rs').write_text(
+              source.replace(old, new, 1), encoding='utf-8', newline='\n'
+          )
+          PY
             cargo fmt --all
             cargo clippy -p toolos-winget --all-targets -- -D warnings
             cargo test -p toolos-winget
@@ -43,7 +56,7 @@ jobs:
           git add crates/toolos-winget/src/lib.rs crates/toolos-winget/src/recovery.rs ISSUE9_DOMAIN_FAILURE.txt
           git commit -m "Record Issue 9 domain gate failure"
           git push origin HEAD:build/winget-user-execution-issue9
-      - name: Commit verified formatting
+      - name: Commit verified domain
         if: success()
         run: |
           git config user.name "ToolOS Build Bot"
@@ -51,5 +64,5 @@ jobs:
           git rm .github/workflows/apply-issue9-domain-format.yml
           git rm --ignore-unmatch ISSUE9_DOMAIN_FAILURE.txt
           git add crates/toolos-winget/src/lib.rs crates/toolos-winget/src/recovery.rs
-          git commit -m "Format and verify recovery domain contracts"
+          git commit -m "Add verified recovery domain contracts"
           git push origin HEAD:build/winget-user-execution-issue9
