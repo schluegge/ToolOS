@@ -6,8 +6,10 @@ use uuid::Uuid;
 
 mod execution;
 mod recovery;
+mod verification;
 pub use execution::*;
 pub use recovery::*;
+pub use verification::*;
 
 const MAX_SELECTOR_LENGTH: usize = 512;
 
