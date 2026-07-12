@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://toolos.local/schemas/winget-recovery-cleanup-plan.schema.json",
+  "title": "ToolOS WinGet Recovery Cleanup Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "cleanup_plan_id",
+    "recovery_execution_id",
+    "plan_hash",
+    "status",
+    "selector",
+    "uninstall_preview",
+    "created_at",
+    "expires_at",
+    "approval_allowed",
+    "approval_challenge",
+    "execution_enabled",
+    "inspection_steps",
+    "limitations",
+    "single_safest_next_action"
+  ],
+  "properties": {
+    "cleanup_plan_id": { "$ref": "#/$defs/uuid" },
+    "recovery_execution_id": { "$ref": "#/$defs/uuid" },
+    "plan_hash": { "$ref": "#/$defs/sha256" },
+    "status": {
+      "enum": ["AWAITING_APPROVAL", "APPROVED_EXECUTION_DISABLED", "EXPIRED"]
+    },
+    "selector": { "$ref": "#/$defs/selector" },
+    "uninstall_preview": { "$ref": "#/$defs/disabledCommand" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "approval_allowed": { "type": "boolean" },
+    "approval_challenge": {
+      "oneOf": [
+        { "$ref": "#/$defs/approvalChallenge" },
+        { "type": "null" }
+      ]
+    },
+    "execution_enabled": { "const": false },
+    "inspection_steps": { "$ref": "#/$defs/stringList" },
+    "limitations": { "$ref": "#/$defs/stringList" },
+    "single_safest_next_action": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "stringList": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package_id", "source", "version", "scope", "architecture"],
+      "properties": {
+        "package_id": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "version": { "type": ["string", "null"] },
+        "scope": { "enum": ["user", "machine", null] },
+        "architecture": { "type": ["string", "null"] }
+      }
+    },
+    "disabledCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executable",
+        "args",
+        "powershell",
+        "working_directory",
+        "environment_changes",
+        "blast_radius",
+        "execution_enabled",
+        "expected_side_effects",
+        "approval_requirements"
+      ],
+      "properties": {
+        "executable": { "type": "string", "minLength": 1 },
+        "args": { "$ref": "#/$defs/stringList" },
+        "powershell": { "type": "string", "minLength": 1 },
+        "working_directory": { "type": ["string", "null"] },
+        "environment_changes": { "type": "array", "items": { "type": "string" } },
+        "blast_radius": { "type": "string", "minLength": 1 },
+        "execution_enabled": { "const": false },
+        "expected_side_effects": { "$ref": "#/$defs/stringList" },
+        "approval_requirements": { "$ref": "#/$defs/stringList" }
+      }
+    },
+    "approvalChallenge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_phrase", "expires_at"],
+      "properties": {
+        "required_phrase": { "type": "string", "minLength": 1 },
+        "expires_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

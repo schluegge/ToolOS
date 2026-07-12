@@ -22,6 +22,8 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: python -m json.tool schemas/winget-install-execution.schema.json > /dev/null
+      - run: python -m json.tool schemas/winget-recovery-report.schema.json > /dev/null
+      - run: python -m json.tool schemas/winget-recovery-cleanup-plan.schema.json > /dev/null
 
   frontend:
     name: React frontend

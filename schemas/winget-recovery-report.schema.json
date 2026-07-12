@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://toolos.local/schemas/winget-recovery-report.schema.json",
+  "title": "ToolOS WinGet Recovery Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "recovery_id",
+    "execution_id",
+    "plan_id",
+    "journal_phase",
+    "status",
+    "observed_at",
+    "pre_state",
+    "post_state",
+    "residual_diff",
+    "lock_retained",
+    "mutable_operations_blocked",
+    "limitations",
+    "single_safest_next_action"
+  ],
+  "properties": {
+    "recovery_id": { "$ref": "#/$defs/uuid" },
+    "execution_id": { "$ref": "#/$defs/uuid" },
+    "plan_id": { "$ref": "#/$defs/uuid" },
+    "journal_phase": {
+      "enum": ["PREPARED", "SPAWN_INTENT", "SPAWNED", "PROVIDER_FINISHED", "FINALIZED"]
+    },
+    "status": {
+      "enum": [
+        "RECOVERED_NO_PROCESS_STARTED",
+        "RECOVERED_FROM_PERSISTED_PROVIDER_RESULT",
+        "FAILED_RESIDUALS_PRESENT",
+        "UNKNOWN_REQUIRES_RECOVERY"
+      ]
+    },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "pre_state": { "$ref": "#/$defs/residualState" },
+    "post_state": {
+      "oneOf": [
+        { "$ref": "#/$defs/residualState" },
+        { "type": "null" }
+      ]
+    },
+    "residual_diff": {
+      "oneOf": [
+        { "$ref": "#/$defs/residualDiff" },
+        { "type": "null" }
+      ]
+    },
+    "lock_retained": { "type": "boolean" },
+    "mutable_operations_blocked": { "type": "boolean" },
+    "limitations": { "$ref": "#/$defs/stringList" },
+    "single_safest_next_action": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "stringList": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package_id", "source", "version", "scope", "architecture"],
+      "properties": {
+        "package_id": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "version": { "type": ["string", "null"] },
+        "scope": { "enum": ["user", "machine", null] },
+        "architecture": { "type": ["string", "null"] }
+      }
+    },
+    "installedState": {
+      "type": "object",
+      "required": [
+        "provider_id",
+        "provider_version",
+        "status",
+        "selector",
+        "installed_probe",
+        "installed_evidence",
+        "observed_at",
+        "definitive_installed_match",
+        "limitations",
+        "single_safest_next_action"
+      ],
+      "properties": {
+        "provider_id": { "type": "string" },
+        "provider_version": { "type": ["string", "null"] },
+        "status": { "enum": ["QUERY_COMPLETED", "BLOCKED", "UNAVAILABLE"] },
+        "selector": { "$ref": "#/$defs/selector" },
+        "installed_probe": { "type": "object" },
+        "installed_evidence": { "type": ["object", "null"] },
+        "observed_at": { "type": "string", "format": "date-time" },
+        "definitive_installed_match": { "type": ["boolean", "null"] },
+        "limitations": { "$ref": "#/$defs/stringList" },
+        "single_safest_next_action": { "type": "string" }
+      }
+    },
+    "residualState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selector",
+        "captured_at",
+        "provider_id",
+        "provider_version",
+        "installed_state",
+        "path_environment_sha256",
+        "path_entry_count",
+        "observable_surfaces",
+        "unobserved_surfaces"
+      ],
+      "properties": {
+        "selector": { "$ref": "#/$defs/selector" },
+        "captured_at": { "type": "string", "format": "date-time" },
+        "provider_id": { "type": "string", "const": "winget" },
+        "provider_version": { "type": ["string", "null"] },
+        "installed_state": { "$ref": "#/$defs/installedState" },
+        "path_environment_sha256": { "$ref": "#/$defs/sha256" },
+        "path_entry_count": { "type": "integer", "minimum": 0 },
+        "observable_surfaces": { "$ref": "#/$defs/stringList" },
+        "unobserved_surfaces": { "$ref": "#/$defs/stringList" }
+      }
+    },
+    "residualDiff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider_version_changed",
+        "path_fingerprint_changed",
+        "installed_evidence_changed",
+        "definitive_installed_match_before",
+        "definitive_installed_match_after",
+        "observed_changes",
+        "limitations"
+      ],
+      "properties": {
+        "provider_version_changed": { "type": "boolean" },
+        "path_fingerprint_changed": { "type": "boolean" },
+        "installed_evidence_changed": { "type": "boolean" },
+        "definitive_installed_match_before": { "type": ["boolean", "null"] },
+        "definitive_installed_match_after": { "type": ["boolean", "null"] },
+        "observed_changes": { "$ref": "#/$defs/stringList" },
+        "limitations": { "$ref": "#/$defs/stringList" }
+      }
+    }
+  }
+}

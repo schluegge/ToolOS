@@ -5,7 +5,9 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 mod execution;
+mod recovery;
 pub use execution::*;
+pub use recovery::*;
 
 const MAX_SELECTOR_LENGTH: usize = 512;
 
@@ -109,6 +111,8 @@ pub enum InstallPlanStatus {
     ExecutionFailed,
     ExecutionTimedOut,
     ExecutionCancelled,
+    RecoveredNoProcessStarted,
+    RecoveredFromPersistedProviderResult,
     UnknownRequiresRecovery,
     Expired,
 }

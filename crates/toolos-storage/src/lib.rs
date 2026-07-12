@@ -6,7 +6,12 @@ use rusqlite_migration::{Migrations, M};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use toolos_domain::{EventRecord, EvidenceRecord};
+use toolos_winget::WingetExecutionJournal;
 use uuid::Uuid;
+
+mod cleanup;
+mod recovery;
+pub use recovery::*;
 
 const MIGRATION_SLICE: &[M<'_>] = &[
     M::up(
@@ -72,6 +77,60 @@ const MIGRATION_SLICE: &[M<'_>] = &[
             FOREIGN KEY(holder_plan_id) REFERENCES action_plan(id)
         );",
     ),
+    M::up(
+        "CREATE TABLE execution_journal (
+            execution_id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL UNIQUE,
+            approval_id TEXT NOT NULL,
+            plan_hash TEXT NOT NULL,
+            resource_key TEXT NOT NULL,
+            phase TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            provider_version TEXT,
+            command_json TEXT NOT NULL,
+            pre_state_json TEXT NOT NULL,
+            process_identity_json TEXT,
+            provider_result_json TEXT,
+            recovery_policy_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            resolved_at TEXT,
+            recovery_status TEXT,
+            recovery_report_json TEXT,
+            record_json TEXT NOT NULL,
+            FOREIGN KEY(plan_id) REFERENCES action_plan(id),
+            FOREIGN KEY(approval_id) REFERENCES approval_receipt(id)
+        );
+        CREATE INDEX execution_journal_phase_idx
+            ON execution_journal(phase, updated_at);
+        CREATE INDEX execution_journal_recovery_idx
+            ON execution_journal(recovery_status, resolved_at);",
+    ),
+    M::up(
+        "CREATE TABLE recovery_cleanup_plan (
+            id TEXT PRIMARY KEY,
+            recovery_execution_id TEXT NOT NULL,
+            plan_hash TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            approval_phrase TEXT NOT NULL,
+            execution_enabled INTEGER NOT NULL CHECK(execution_enabled = 0),
+            record_json TEXT NOT NULL,
+            FOREIGN KEY(recovery_execution_id) REFERENCES execution_journal(execution_id)
+        );
+        CREATE INDEX recovery_cleanup_execution_idx
+            ON recovery_cleanup_plan(recovery_execution_id, created_at DESC);
+        CREATE TABLE recovery_cleanup_approval (
+            id TEXT PRIMARY KEY,
+            cleanup_plan_id TEXT NOT NULL UNIQUE,
+            plan_hash TEXT NOT NULL,
+            approved_at TEXT NOT NULL,
+            execution_enabled INTEGER NOT NULL CHECK(execution_enabled = 0),
+            record_json TEXT NOT NULL,
+            FOREIGN KEY(cleanup_plan_id) REFERENCES recovery_cleanup_plan(id)
+        );",
+    ),
 ];
 const MIGRATIONS: Migrations<'_> = Migrations::from_slice(MIGRATION_SLICE);
 
@@ -109,6 +168,15 @@ pub enum StorageError {
         holder_plan_id: String,
         expires_at: String,
     },
+    #[error("execution journal {execution_id} is not in expected phase {expected}")]
+    JournalPhaseMismatch {
+        execution_id: String,
+        expected: String,
+    },
+    #[error("invalid execution journal transition from {expected} to {next}")]
+    JournalTransitionInvalid { expected: String, next: String },
+    #[error("execution journal recovery result does not match report: {0}")]
+    JournalRecoveryMismatch(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -162,6 +230,7 @@ pub struct ActionExecutionStart<'a> {
     pub updated_plan_json: &'a str,
     pub now: DateTime<Utc>,
     pub lock_expires_at: DateTime<Utc>,
+    pub journal: &'a WingetExecutionJournal,
 }
 
 #[derive(Debug)]
@@ -171,6 +240,7 @@ pub struct ActionExecutionFinish<'a> {
     pub updated_plan_json: &'a str,
     pub resource_key: &'a str,
     pub release_resource_lock: bool,
+    pub journal: &'a WingetExecutionJournal,
 }
 
 #[derive(Debug, Clone)]
@@ -612,6 +682,7 @@ impl Storage {
                 execution.plan_id.to_string()
             ],
         )?;
+        recovery::insert_execution_journal(&transaction, execution.journal)?;
         transaction.commit()?;
         Ok(())
     }
@@ -637,6 +708,7 @@ impl Storage {
                 "execution completion requires EXECUTING state".to_owned(),
             ));
         }
+        recovery::finalize_execution_journal(&transaction, execution.journal)?;
         if execution.release_resource_lock {
             transaction.execute(
                 "DELETE FROM resource_lock WHERE resource_key = ?1 AND holder_plan_id = ?2",
@@ -741,6 +813,11 @@ mod tests {
     use serde_json::json;
     use tempfile::tempdir;
     use toolos_domain::EvidenceKind;
+    use toolos_winget::{
+        build_residual_state_manifest, install_preview, installed_probe, ExecutionJournalPhase,
+        InstalledQueryStatus, PackageScope, PackageSelector, WingetExecutionJournal,
+        WingetInstalledStateReport, WingetRecoveryPolicy,
+    };
 
     #[test]
     fn migrations_are_valid() {
@@ -853,13 +930,65 @@ mod tests {
         ));
     }
 
+    fn recovery_test_journal(
+        plan_id: Uuid,
+        approval_id: Uuid,
+        now: DateTime<Utc>,
+    ) -> WingetExecutionJournal {
+        let selector = PackageSelector {
+            package_id: "Git.Git".to_owned(),
+            source: "winget".to_owned(),
+            version: Some("2.50.1".to_owned()),
+            scope: Some(PackageScope::User),
+            architecture: Some("x64".to_owned()),
+        };
+        let installed_state = WingetInstalledStateReport {
+            provider_id: "winget".to_owned(),
+            provider_version: Some("v1".to_owned()),
+            status: InstalledQueryStatus::QueryCompleted,
+            selector: selector.clone(),
+            installed_probe: installed_probe(&selector),
+            installed_evidence: None,
+            observed_at: now,
+            definitive_installed_match: None,
+            limitations: Vec::new(),
+            single_safest_next_action: "review".to_owned(),
+        };
+        WingetExecutionJournal {
+            execution_id: Uuid::new_v4(),
+            plan_id,
+            approval_id,
+            plan_hash: "abc".to_owned(),
+            resource_key: "package-manager:winget".to_owned(),
+            phase: ExecutionJournalPhase::Prepared,
+            provider_id: "winget".to_owned(),
+            provider_version: Some("v1".to_owned()),
+            command: install_preview(&selector),
+            pre_state: build_residual_state_manifest(
+                selector,
+                Some("v1".to_owned()),
+                installed_state,
+                now,
+            ),
+            process_identity: None,
+            provider_result: None,
+            recovery_policy: WingetRecoveryPolicy::default(),
+            created_at: now,
+            updated_at: now,
+            resolved_at: None,
+            recovery_status: None,
+        }
+    }
+
     #[test]
     fn unknown_execution_retains_resource_lock() {
         let directory = tempdir().expect("temp directory");
         let storage = Storage::initialize(directory.path().join("toolos.db")).expect("storage");
         let now = Utc::now();
         let plan_id = Uuid::new_v4();
-        let connection = storage.open_connection().expect("connection");
+        let approval_id = Uuid::new_v4();
+        let mut journal = recovery_test_journal(plan_id, approval_id, now);
+        let mut connection = storage.open_connection().expect("connection");
         connection
             .execute(
                 "INSERT INTO action_plan (id, capability, resource_key, status, plan_hash, created_at, expires_at, approval_phrase, record_json)
@@ -882,7 +1011,41 @@ mod tests {
                 ],
             )
             .expect("insert lock");
+        connection
+            .execute(
+                "INSERT INTO approval_receipt (id, plan_id, plan_hash, approved_at, expires_at, resource_key, record_json)
+                 VALUES (?1, ?2, 'abc', ?3, ?4, 'package-manager:winget', '{}')",
+                params![
+                    approval_id.to_string(),
+                    plan_id.to_string(),
+                    now.to_rfc3339(),
+                    (now + chrono::Duration::minutes(5)).to_rfc3339()
+                ],
+            )
+            .expect("insert approval");
+        let transaction = connection.transaction().expect("journal transaction");
+        recovery::insert_execution_journal(&transaction, &journal).expect("insert journal");
+        transaction.commit().expect("commit journal");
         drop(connection);
+
+        journal.phase = ExecutionJournalPhase::SpawnIntent;
+        journal.updated_at = now + chrono::Duration::seconds(1);
+        storage
+            .transition_execution_journal(ExecutionJournalPhase::Prepared, &journal)
+            .expect("spawn intent");
+        journal.phase = ExecutionJournalPhase::Spawned;
+        journal.updated_at = now + chrono::Duration::seconds(2);
+        storage
+            .transition_execution_journal(ExecutionJournalPhase::SpawnIntent, &journal)
+            .expect("spawned");
+        journal.phase = ExecutionJournalPhase::ProviderFinished;
+        journal.updated_at = now + chrono::Duration::seconds(3);
+        storage
+            .transition_execution_journal(ExecutionJournalPhase::Spawned, &journal)
+            .expect("provider finished");
+        journal.phase = ExecutionJournalPhase::Finalized;
+        journal.updated_at = now + chrono::Duration::seconds(4);
+        journal.resolved_at = Some(journal.updated_at);
 
         storage
             .finish_action_execution(&ActionExecutionFinish {
@@ -891,6 +1054,7 @@ mod tests {
                 updated_plan_json: "{}",
                 resource_key: "package-manager:winget",
                 release_resource_lock: false,
+                journal: &journal,
             })
             .expect("finish unknown execution");
 

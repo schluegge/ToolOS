@@ -6,14 +6,14 @@ ToolOS is a Windows-first, ecosystem-wide local control plane for non-coders. It
 
 This repository currently implements the platform skeleton, trusted read-only discovery, and the first governed managed-machine provider slice:
 
-- `toolos-daemon`: user-scoped Rust daemon with local socket IPC, SQLite state, governed action plans, active-execution control, and evidence persistence.
-- `toolos`: CLI for health, system scan, project inspection, ZIP inspection, WinGet exact resolution, governed planning/approval/execution/cancellation, evidence, and event replay.
+- `toolos-daemon`: user-scoped Rust daemon with local socket IPC, SQLite state, governed action plans, durable execution journals, startup reconciliation, active-execution control, and evidence persistence.
+- `toolos`: CLI for health, system scan, project inspection, ZIP inspection, WinGet exact resolution, governed planning/approval/execution/cancellation, recovery inspection, disabled cleanup planning, evidence, and event replay.
 - `toolos-launcher`: starts the daemon when necessary and launches the desktop client.
 - `toolos-system-adapter`: out-of-process JSON-RPC adapter for selected machine, project, and archive metadata.
 - `toolos-winget-adapter`: out-of-process provider for exact WinGet resolution, disabled previews, bounded live provider output, and the draft pinned user-scope execution slice.
 - `toolos-process`: safe process-control API with a Windows Job Object implementation for contained mutable execution and native parent/grandchild tests.
-- `toolos-ui`: Tauri 2 + React guided dashboard using the same daemon API, including execution cancellation and recovery-state rendering.
-- Typed capability, evidence, adapter, action, approval, quota, lesson, policy, archive-report, package-resolution, execution, and containment schemas.
+- `toolos-ui`: Tauri 2 + React guided dashboard using the same daemon API, including execution cancellation, persisted recovery reports, residual-state differences, and approval-only cleanup planning.
+- Typed capability, evidence, adapter, action, approval, quota, lesson, policy, archive-report, package-resolution, execution, containment, recovery-report, and cleanup-plan schemas.
 - Correlated event and evidence persistence.
 
 This is not the complete twelve-phase product. The implemented scope includes Milestone A, selected Milestone B capabilities, and the first governed Milestone C provider slice.
@@ -36,7 +36,25 @@ The mutating adapter is assigned to a Windows Job Object during `CreateProcessW`
 
 Provider stdout/stderr is retained with independent bounds. During execution, observed WinGet output is also mirrored to the adapter's stderr transport so output emitted before timeout or cancellation is not lost when the adapter cannot return final JSON.
 
-Process-tree containment is covered by native Windows tests. Production merge remains blocked by crash/restart residual-state reconciliation in Issue #9 and locale-stable installed-state/application-health verification in Issue #10.
+Process-tree containment is covered by native Windows tests.
+
+## Crash-safe WinGet recovery
+
+Every governed execution now has a durable SQLite journal with five phases:
+
+- `PREPARED`: approval was consumed atomically with the `EXECUTING` plan transition, but process creation was not yet attempted.
+- `SPAWN_INTENT`: the next operation is process creation; a crash from this point is ambiguous.
+- `SPAWNED`: root process identity and containment method are durable.
+- `PROVIDER_FINISHED`: bounded provider and containment evidence are durable before final plan persistence.
+- `FINALIZED`: plan status, journal resolution, and lock decision are committed.
+
+The daemon reconciles every unresolved journal before serving IPC requests. `PREPARED` is resolved as `RECOVERED_NO_PROCESS_STARTED` and releases the lock. A `PROVIDER_FINISHED` journal with confirmed zero active processes is finalized from its persisted evidence without replaying WinGet. `SPAWN_INTENT`, `SPAWNED`, malformed records, or unconfirmed containment become `UNKNOWN_REQUIRES_RECOVERY`; the WinGet lock is retained and further mutable package actions are blocked.
+
+Recovery captures a bounded pre-state manifest and, when available, a read-only post-state manifest. It compares provider version, exact installed-state evidence, and a SHA-256/count fingerprint of the daemon `PATH` without storing PATH contents. These observations do not prove attribution or complete absence of file, registry, service, task, driver, process, or package residuals.
+
+For unresolved reports, ToolOS can create an immutable cleanup plan containing inspection steps and an exact uninstall preview. Cleanup approval is separate and remains `APPROVED_EXECUTION_DISABLED`. There is intentionally no cleanup execution endpoint in Issue #9, and recovery never replays an interrupted installer.
+
+Restart simulations reopen the same SQLite database after seeded crashes at `PREPARED`, `SPAWN_INTENT`, `SPAWNED`, and `PROVIDER_FINISHED`, then verify the resulting plan status, recovery report, lock decision, and mutation gate. Production merge remains blocked only by locale-stable installed-state and application-health verification in Issue #10.
 
 ## Development
 
@@ -67,6 +85,12 @@ cargo run -p toolos-cli -- winget-install-approve --plan-id <PLAN_UUID> --plan-h
 cargo run -p toolos-cli -- winget-install-execute --plan-id <PLAN_UUID> --approval-id <APPROVAL_UUID> --confirmation "<EXACT EXECUTION PHRASE>"
 # Optional cancellation from another terminal:
 cargo run -p toolos-cli -- winget-install-cancel --execution-id <EXECUTION_UUID>
+# Inspect durable recovery state after an interrupted execution:
+cargo run -p toolos-cli -- winget-recovery-list
+cargo run -p toolos-cli -- winget-recovery-get --execution-id <EXECUTION_UUID>
+# Cleanup planning and approval record intent only; execution remains disabled:
+cargo run -p toolos-cli -- winget-recovery-cleanup-plan --execution-id <EXECUTION_UUID>
+cargo run -p toolos-cli -- winget-recovery-cleanup-approve --cleanup-plan-id <CLEANUP_PLAN_UUID> --plan-hash <SHA256> --confirmation "<EXACT CLEANUP APPROVAL PHRASE>"
 cargo run -p toolos-cli -- evidence
 ```
 
@@ -80,7 +104,7 @@ Detailed Windows setup and verification are in [`docs/operations/development.md`
 
 ## Architecture
 
-The UI and CLI never perform unrestricted shell actions. They send typed JSON-RPC requests over a local socket to the daemon. The daemon owns policy, evidence, persistence, active-execution control, and adapter supervision. System and WinGet providers are separate processes using line-delimited JSON-RPC over stdio. The mutating WinGet adapter is additionally supervised by the Windows Job Object runner.
+The UI and CLI never perform unrestricted shell actions. They send typed JSON-RPC requests over a local socket to the daemon. The daemon owns policy, evidence, persistence, execution journaling, startup reconciliation, active-execution control, and adapter supervision. System and WinGet providers are separate processes using line-delimited JSON-RPC over stdio. The mutating WinGet adapter is additionally supervised by the Windows Job Object runner.
 
 See:
 
@@ -91,4 +115,4 @@ See:
 
 ## Safety boundary
 
-The current draft permits read-only observations, governed metadata, and one narrow executable slice: an exact version-pinned, architecture-pinned, user-scope WinGet install after fresh revalidation and two separate short-lived confirmations. The mutable process tree is contained and cancellable on Windows, but database recovery after abrupt daemon loss and definitive application verification are not yet complete. ToolOS never auto-accepts agreements, requests elevation, adds installer overrides, bypasses hashes, forces execution, skips dependencies, or claims application health from an exit code. Extraction, deletion, billing, credential extraction, browser stealth, CAPTCHA bypass, machine-scope installation, and arbitrary repository execution remain unimplemented.
+The current draft permits read-only observations, governed metadata, and one narrow executable slice: an exact version-pinned, architecture-pinned, user-scope WinGet install after fresh revalidation and two separate short-lived confirmations. The mutable process tree is contained and cancellable on Windows. Interrupted executions are journaled and reconciled before further mutable actions; ambiguous states retain the lock and require explicit recovery review. Cleanup planning is approval-only and execution-disabled. Definitive application verification is not yet complete. ToolOS never auto-accepts agreements, requests elevation, adds installer overrides, bypasses hashes, forces execution, skips dependencies, or claims application health from an exit code. Extraction, deletion, billing, credential extraction, browser stealth, CAPTCHA bypass, machine-scope installation, and arbitrary repository execution remain unimplemented.

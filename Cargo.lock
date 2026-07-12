@@ -1008,6 +1008,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "serde_json",
+ "tempfile",
  "tokio",
  "toolos-domain",
  "toolos-ipc",
@@ -1078,6 +1079,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "toolos-domain",
+ "toolos-winget",
  "uuid",
 ]
 
