@@ -123,7 +123,7 @@ jobs:
         run: |
           git config user.name "ToolOS Build Bot"
           git config user.email "toolos-build-bot@users.noreply.github.com"
-          git rm tools/issue8_daemon_hotfix.py tools/issue8_daemon_integration.py tools/issue8_compile_hotfix.py tools/issue8_test_hotfix.py
+          git rm -f tools/issue8_daemon_hotfix.py tools/issue8_daemon_integration.py tools/issue8_compile_hotfix.py tools/issue8_test_hotfix.py
           git add Cargo.lock apps/toolos-daemon/src/main.rs crates/toolos-storage/src/lib.rs crates/toolos-winget/src/lib.rs
           git commit -m "feat: integrate contained WinGet execution"
           git push origin HEAD:build/winget-user-execution-issue8
