@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 0
       - run: git apply --check ISSUE9_RECOVERY_UI.patch
       - run: git apply ISSUE9_RECOVERY_UI.patch
-      - name: Publish verified files through contents API
+      - name: Publish verified UI sources through contents API
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_BRANCH: build/winget-user-execution-issue9
@@ -27,7 +27,6 @@ jobs:
         run: |
           set -euo pipefail
           for path in \
-            .github/workflows/verify.yml \
             apps/toolos-ui/src/App.tsx \
             apps/toolos-ui/src/api.ts
           do
