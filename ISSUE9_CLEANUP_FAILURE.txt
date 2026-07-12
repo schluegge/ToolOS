@@ -1,51 +1,180 @@
 [1m[92m    Updating[0m crates.io index
+[1m[92m Downloading[0m crates ...
+[1m[92m  Downloaded[0m signal-hook-registry v1.4.8
+[1m[92m  Downloaded[0m cpufeatures v0.2.17
+[1m[92m  Downloaded[0m sha2 v0.10.9
+[1m[92m  Downloaded[0m find-msvc-tools v0.1.9
+[1m[92m  Downloaded[0m anyhow v1.0.103
+[1m[92m  Downloaded[0m block-buffer v0.10.4
+[1m[92m  Downloaded[0m futures-core v0.3.32
+[1m[92m  Downloaded[0m fallible-streaming-iterator v0.1.9
+[1m[92m  Downloaded[0m vcpkg v0.2.15
+[1m[92m  Downloaded[0m getrandom v0.4.3
+[1m[92m  Downloaded[0m fallible-iterator v0.3.0
+[1m[92m  Downloaded[0m fastrand v2.4.1
+[1m[92m  Downloaded[0m hashbrown v0.17.1
+[1m[92m  Downloaded[0m hashlink v0.12.1
+[1m[92m  Downloaded[0m iana-time-zone v0.1.65
+[1m[92m  Downloaded[0m aho-corasick v1.1.4
+[1m[92m  Downloaded[0m interprocess v2.4.2
+[1m[92m  Downloaded[0m bitflags v2.13.0
+[1m[92m  Downloaded[0m chrono v0.4.45
+[1m[92m  Downloaded[0m autocfg v1.5.1
+[1m[92m  Downloaded[0m matchers v0.2.0
+[1m[92m  Downloaded[0m parking_lot v0.12.5
+[1m[92m  Downloaded[0m bytes v1.12.1
+[1m[92m  Downloaded[0m pkg-config v0.3.33
+[1m[92m  Downloaded[0m shlex v2.0.1
+[1m[92m  Downloaded[0m ref-cast v1.0.25
+[1m[92m  Downloaded[0m tempfile v3.27.0
+[1m[92m  Downloaded[0m crypto-common v0.1.7
+[1m[92m  Downloaded[0m dyn-clone v1.0.20
+[1m[92m  Downloaded[0m socket2 v0.6.4
+[1m[92m  Downloaded[0m tracing-serde v0.2.0
+[1m[92m  Downloaded[0m schemars_derive v1.2.1
+[1m[92m  Downloaded[0m itoa v1.0.18
+[1m[92m  Downloaded[0m lock_api v0.4.14
+[1m[92m  Downloaded[0m generic-array v0.14.7
+[1m[92m  Downloaded[0m lazy_static v1.5.0
+[1m[92m  Downloaded[0m cfg-if v1.0.4
+[1m[92m  Downloaded[0m thread_local v1.1.10
+[1m[92m  Downloaded[0m doctest-file v1.1.1
+[1m[92m  Downloaded[0m nu-ansi-term v0.50.3
+[1m[92m  Downloaded[0m serde_derive v1.0.228
+[1m[92m  Downloaded[0m tracing-core v0.1.36
+[1m[92m  Downloaded[0m version_check v0.9.5
+[1m[92m  Downloaded[0m zmij v1.0.21
+[1m[92m  Downloaded[0m digest v0.10.7
+[1m[92m  Downloaded[0m scopeguard v1.2.0
+[1m[92m  Downloaded[0m tokio-macros v2.7.0
+[1m[92m  Downloaded[0m errno v0.3.14
+[1m[92m  Downloaded[0m serde_derive_internals v0.29.1
+[1m[92m  Downloaded[0m smallvec v1.15.2
+[1m[92m  Downloaded[0m thiserror-impl v2.0.18
+[1m[92m  Downloaded[0m foldhash v0.2.0
+[1m[92m  Downloaded[0m pin-project-lite v0.2.17
+[1m[92m  Downloaded[0m quote v1.0.46
+[1m[92m  Downloaded[0m ref-cast-impl v1.0.25
+[1m[92m  Downloaded[0m proc-macro2 v1.0.106
+[1m[92m  Downloaded[0m rusqlite_migration v2.6.0
+[1m[92m  Downloaded[0m thiserror v2.0.18
+[1m[92m  Downloaded[0m tracing-attributes v0.1.31
+[1m[92m  Downloaded[0m tracing-log v0.2.0
+[1m[92m  Downloaded[0m num-traits v0.2.19
+[1m[92m  Downloaded[0m once_cell v1.21.4
+[1m[92m  Downloaded[0m unicode-ident v1.0.24
+[1m[92m  Downloaded[0m uuid v1.23.4
+[1m[92m  Downloaded[0m log v0.4.33
+[1m[92m  Downloaded[0m parking_lot_core v0.9.12
+[1m[92m  Downloaded[0m sharded-slab v0.1.7
+[1m[92m  Downloaded[0m cc v1.2.67
+[1m[92m  Downloaded[0m schemars v1.2.1
+[1m[92m  Downloaded[0m serde_core v1.0.228
+[1m[92m  Downloaded[0m libc v0.2.186
+[1m[92m  Downloaded[0m serde v1.0.228
+[1m[92m  Downloaded[0m memchr v2.8.3
+[1m[92m  Downloaded[0m typenum v1.20.1
+[1m[92m  Downloaded[0m mio v1.2.1
+[1m[92m  Downloaded[0m regex-syntax v0.8.11
+[1m[92m  Downloaded[0m tracing-subscriber v0.3.23
+[1m[92m  Downloaded[0m rusqlite v0.40.1
+[1m[92m  Downloaded[0m serde_json v1.0.150
+[1m[92m  Downloaded[0m rustix v1.1.4
+[1m[92m  Downloaded[0m syn v2.0.118
+[1m[92m  Downloaded[0m tracing v0.1.44
+[1m[92m  Downloaded[0m regex-automata v0.4.15
+[1m[92m  Downloaded[0m tokio v1.52.3
+[1m[92m  Downloaded[0m linux-raw-sys v0.12.1
+[1m[92m  Downloaded[0m libsqlite3-sys v0.38.1
+[1m[92m   Compiling[0m proc-macro2 v1.0.106
+[1m[92m   Compiling[0m quote v1.0.46
+[1m[92m   Compiling[0m unicode-ident v1.0.24
 [1m[92m   Compiling[0m libc v0.2.186
+[1m[92m    Checking[0m cfg-if v1.0.4
+[1m[92m   Compiling[0m serde_core v1.0.228
+[1m[92m   Compiling[0m version_check v0.9.5
+[1m[92m    Checking[0m smallvec v1.15.2
 [1m[92m   Compiling[0m syn v2.0.118
-[1m[92m    Checking[0m once_cell v1.21.4
-[1m[92m    Checking[0m log v0.4.33
-[1m[92m    Checking[0m regex-syntax v0.8.11
-[1m[92m    Checking[0m tracing-core v0.1.36
-[1m[92m    Checking[0m rusqlite_migration v2.6.0
-[1m[92m    Checking[0m futures-core v0.3.32
-[1m[92m    Checking[0m lazy_static v1.5.0
-[1m[92m   Compiling[0m anyhow v1.0.103
-[1m[92m   Compiling[0m doctest-file v1.1.1
-[1m[92m    Checking[0m regex-automata v0.4.15
-[1m[92m    Checking[0m sharded-slab v0.1.7
-[1m[92m    Checking[0m tracing-log v0.2.0
-[1m[92m    Checking[0m thread_local v1.1.10
-[1m[92m    Checking[0m nu-ansi-term v0.50.3
-[1m[92m    Checking[0m getrandom v0.4.3
-[1m[92m    Checking[0m parking_lot_core v0.9.12
+[1m[92m   Compiling[0m serde v1.0.228
+[1m[92m   Compiling[0m generic-array v0.14.7
+[1m[92m   Compiling[0m zmij v1.0.21
+[1m[92m   Compiling[0m getrandom v0.4.3
+[1m[92m   Compiling[0m autocfg v1.5.1
+[1m[92m    Checking[0m typenum v1.20.1
+[1m[92m   Compiling[0m num-traits v0.2.19
+[1m[92m   Compiling[0m parking_lot_core v0.9.12
+[1m[92m   Compiling[0m serde_json v1.0.150
+[1m[92m    Checking[0m itoa v1.0.18
+[1m[92m   Compiling[0m ref-cast v1.0.25
+[1m[92m    Checking[0m scopeguard v1.2.0
+[1m[92m    Checking[0m pin-project-lite v0.2.17
+[1m[92m    Checking[0m memchr v2.8.3
+[1m[92m    Checking[0m lock_api v0.4.14
 [1m[92m    Checking[0m errno v0.3.14
-[1m[92m    Checking[0m parking_lot v0.12.5
+[1m[92m    Checking[0m iana-time-zone v0.1.65
 [1m[92m    Checking[0m signal-hook-registry v1.4.8
+[1m[92m    Checking[0m parking_lot v0.12.5
+[1m[92m    Checking[0m block-buffer v0.10.4
+[1m[92m    Checking[0m crypto-common v0.1.7
 [1m[92m    Checking[0m uuid v1.23.4
-[1m[92m    Checking[0m socket2 v0.6.4
 [1m[92m    Checking[0m mio v1.2.1
-[1m[92m    Checking[0m matchers v0.2.0
-[1m[92m    Checking[0m tempfile v3.27.0
+[1m[92m    Checking[0m socket2 v0.6.4
+[1m[92m    Checking[0m once_cell v1.21.4
+[1m[92m    Checking[0m bytes v1.12.1
+[1m[92m   Compiling[0m find-msvc-tools v0.1.9
+[1m[92m   Compiling[0m thiserror v2.0.18
+[1m[92m   Compiling[0m shlex v2.0.1
 [1m[92m   Compiling[0m serde_derive_internals v0.29.1
+[1m[92m    Checking[0m dyn-clone v1.0.20
+[1m[92m   Compiling[0m cc v1.2.67
+[1m[92m    Checking[0m digest v0.10.7
+[1m[92m   Compiling[0m vcpkg v0.2.15
+[1m[92m    Checking[0m cpufeatures v0.2.17
+[1m[92m   Compiling[0m pkg-config v0.3.33
+[1m[92m    Checking[0m sha2 v0.10.9
+[1m[92m    Checking[0m bitflags v2.13.0
+[1m[92m    Checking[0m foldhash v0.2.0
+[1m[92m    Checking[0m hashbrown v0.17.1
+[1m[92m    Checking[0m tracing-core v0.1.36
+[1m[92m   Compiling[0m libsqlite3-sys v0.38.1
+[1m[92m    Checking[0m log v0.4.33
 [1m[92m   Compiling[0m serde_derive v1.0.228
 [1m[92m   Compiling[0m ref-cast-impl v1.0.25
 [1m[92m   Compiling[0m tokio-macros v2.7.0
 [1m[92m   Compiling[0m schemars_derive v1.2.1
-[1m[92m    Checking[0m ref-cast v1.0.25
-[1m[92m   Compiling[0m thiserror-impl v2.0.18
 [1m[92m    Checking[0m tokio v1.52.3
-[1m[92m    Checking[0m thiserror v2.0.18
-[1m[92m   Compiling[0m tracing-attributes v0.1.31
-[1m[92m    Checking[0m tracing v0.1.44
-[1m[92m    Checking[0m serde v1.0.228
+[1m[92m   Compiling[0m thiserror-impl v2.0.18
+[1m[92m    Checking[0m hashlink v0.12.1
+[1m[92m    Checking[0m fallible-streaming-iterator v0.1.9
+[1m[92m   Compiling[0m rusqlite_migration v2.6.0
 [1m[92m    Checking[0m chrono v0.4.45
-[1m[92m    Checking[0m tracing-serde v0.2.0
-[1m[92m    Checking[0m tracing-subscriber v0.3.23
+[1m[92m    Checking[0m fallible-iterator v0.3.0
+[1m[92m   Compiling[0m tracing-attributes v0.1.31
+[1m[92m    Checking[0m regex-syntax v0.8.11
 [1m[92m    Checking[0m schemars v1.2.1
-[1m[92m    Checking[0m interprocess v2.4.2
+[1m[92m    Checking[0m tracing v0.1.44
 [1m[92m    Checking[0m toolos-process v0.1.0 (/home/runner/work/ToolOS/ToolOS/crates/toolos-process)
 [1m[92m    Checking[0m toolos-domain v0.1.0 (/home/runner/work/ToolOS/ToolOS/crates/toolos-domain)
+[1m[92m    Checking[0m regex-automata v0.4.15
 [1m[92m    Checking[0m toolos-winget v0.1.0 (/home/runner/work/ToolOS/ToolOS/crates/toolos-winget)
+[1m[92m   Compiling[0m anyhow v1.0.103
+[1m[92m    Checking[0m lazy_static v1.5.0
+[1m[92m    Checking[0m futures-core v0.3.32
+[1m[92m   Compiling[0m rustix v1.1.4
+[1m[92m   Compiling[0m doctest-file v1.1.1
+[1m[92m    Checking[0m matchers v0.2.0
+[1m[92m    Checking[0m sharded-slab v0.1.7
+[1m[92m    Checking[0m interprocess v2.4.2
+[1m[92m    Checking[0m tracing-serde v0.2.0
+[1m[92m    Checking[0m tracing-log v0.2.0
+[1m[92m    Checking[0m thread_local v1.1.10
+[1m[92m    Checking[0m nu-ansi-term v0.50.3
+[1m[92m    Checking[0m linux-raw-sys v0.12.1
 [1m[92m    Checking[0m toolos-ipc v0.1.0 (/home/runner/work/ToolOS/ToolOS/crates/toolos-ipc)
+[1m[92m    Checking[0m tracing-subscriber v0.3.23
+[1m[92m    Checking[0m fastrand v2.4.1
+[1m[92m    Checking[0m tempfile v3.27.0
+[1m[92m    Checking[0m rusqlite v0.40.1
 [1m[92m    Checking[0m toolos-storage v0.1.0 (/home/runner/work/ToolOS/ToolOS/crates/toolos-storage)
 [1m[91merror[0m[1m: unused import: `cleanup::*`[0m
   [1m[94m--> [0mcrates/toolos-storage/src/lib.rs:14:9
@@ -59,3 +188,128 @@
 [1m[91merror[0m: could not compile `toolos-storage` (lib) due to 1 previous error
 [1m[33mwarning[0m: build failed, waiting for other jobs to finish...
 [1m[91merror[0m: could not compile `toolos-storage` (lib test) due to 1 previous error
+[1m[92m   Compiling[0m cfg-if v1.0.4
+[1m[92m   Compiling[0m libc v0.2.186
+[1m[92m   Compiling[0m serde_core v1.0.228
+[1m[92m   Compiling[0m smallvec v1.15.2
+[1m[92m   Compiling[0m typenum v1.20.1
+[1m[92m   Compiling[0m zmij v1.0.21
+[1m[92m   Compiling[0m itoa v1.0.18
+[1m[92m   Compiling[0m scopeguard v1.2.0
+[1m[92m   Compiling[0m memchr v2.8.3
+[1m[92m   Compiling[0m generic-array v0.14.7
+[1m[92m   Compiling[0m pin-project-lite v0.2.17
+[1m[92m   Compiling[0m lock_api v0.4.14
+[1m[92m   Compiling[0m num-traits v0.2.19
+[1m[92m   Compiling[0m getrandom v0.4.3
+[1m[92m   Compiling[0m parking_lot_core v0.9.12
+[1m[92m   Compiling[0m errno v0.3.14
+[1m[92m   Compiling[0m iana-time-zone v0.1.65
+[1m[92m   Compiling[0m parking_lot v0.12.5
+[1m[92m   Compiling[0m ref-cast v1.0.25
+[1m[92m   Compiling[0m signal-hook-registry v1.4.8
+[1m[92m   Compiling[0m mio v1.2.1
+[1m[92m   Compiling[0m socket2 v0.6.4
+[1m[92m   Compiling[0m block-buffer v0.10.4
+[1m[92m   Compiling[0m crypto-common v0.1.7
+[1m[92m   Compiling[0m serde v1.0.228
+[1m[92m   Compiling[0m serde_json v1.0.150
+[1m[92m   Compiling[0m uuid v1.23.4
+[1m[92m   Compiling[0m bytes v1.12.1
+[1m[92m   Compiling[0m chrono v0.4.45
+[1m[92m   Compiling[0m dyn-clone v1.0.20
+[1m[92m   Compiling[0m digest v0.10.7
+[1m[92m   Compiling[0m tokio v1.52.3
+[1m[92m   Compiling[0m once_cell v1.21.4
+[1m[92m   Compiling[0m cpufeatures v0.2.17
+[1m[92m   Compiling[0m sha2 v0.10.9
+[1m[92m   Compiling[0m thiserror v2.0.18
+[1m[92m   Compiling[0m bitflags v2.13.0
+[1m[92m   Compiling[0m foldhash v0.2.0
+[1m[92m   Compiling[0m hashbrown v0.17.1
+[1m[92m   Compiling[0m log v0.4.33
+[1m[92m   Compiling[0m schemars v1.2.1
+[1m[92m   Compiling[0m hashlink v0.12.1
+[1m[92m   Compiling[0m libsqlite3-sys v0.38.1
+[1m[92m   Compiling[0m tracing-core v0.1.36
+[1m[92m   Compiling[0m fallible-iterator v0.3.0
+[1m[92m   Compiling[0m fallible-streaming-iterator v0.1.9
+[1m[92m   Compiling[0m rusqlite v0.40.1
+[1m[92m   Compiling[0m toolos-domain v0.1.0 (/home/runner/work/ToolOS/ToolOS/crates/toolos-domain)
+[1m[92m   Compiling[0m regex-syntax v0.8.11
+[1m[92m   Compiling[0m rusqlite_migration v2.6.0
+[1m[92m   Compiling[0m linux-raw-sys v0.12.1
+[1m[92m   Compiling[0m tracing v0.1.44
+[1m[92m   Compiling[0m lazy_static v1.5.0
+[1m[92m   Compiling[0m rustix v1.1.4
+[1m[92m   Compiling[0m fastrand v2.4.1
+[1m[92m   Compiling[0m futures-core v0.3.32
+[1m[92m   Compiling[0m sharded-slab v0.1.7
+[1m[92m   Compiling[0m toolos-process v0.1.0 (/home/runner/work/ToolOS/ToolOS/crates/toolos-process)
+[1m[92m   Compiling[0m toolos-winget v0.1.0 (/home/runner/work/ToolOS/ToolOS/crates/toolos-winget)
+[1m[92m   Compiling[0m regex-automata v0.4.15
+[1m[92m   Compiling[0m tempfile v3.27.0
+[1m[92m   Compiling[0m toolos-storage v0.1.0 (/home/runner/work/ToolOS/ToolOS/crates/toolos-storage)
+[1m[33mwarning[0m[1m: unused import: `cleanup::*`[0m
+  [1m[94m--> [0mcrates/toolos-storage/src/lib.rs:14:9
+   [1m[94m|[0m
+[1m[94m14[0m [1m[94m|[0m pub use cleanup::*;
+   [1m[94m|[0m         [1m[33m^^^^^^^^^^[0m
+   [1m[94m|[0m
+   [1m[94m= [0m[1mnote[0m: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+[1m[92m   Compiling[0m interprocess v2.4.2
+[1m[92m   Compiling[0m matchers v0.2.0
+[1m[92m   Compiling[0m tracing-log v0.2.0
+[1m[92m   Compiling[0m tracing-serde v0.2.0
+[1m[92m   Compiling[0m thread_local v1.1.10
+[1m[92m   Compiling[0m nu-ansi-term v0.50.3
+[1m[33mwarning[0m: `toolos-storage` (lib) generated 1 warning (run `cargo fix --lib -p toolos-storage` to apply 1 suggestion)
+[1m[92m   Compiling[0m toolos-ipc v0.1.0 (/home/runner/work/ToolOS/ToolOS/crates/toolos-ipc)
+[1m[92m   Compiling[0m anyhow v1.0.103
+[1m[92m   Compiling[0m tracing-subscriber v0.3.23
+[1m[33mwarning[0m: `toolos-storage` (lib test) generated 1 warning (1 duplicate)
+[1m[92m   Compiling[0m toolos-daemon v0.1.0 (/home/runner/work/ToolOS/ToolOS/apps/toolos-daemon)
+[1m[92m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 14.13s
+[1m[92m     Running[0m unittests src/main.rs (target/debug/deps/toolos_daemon-a4717e25904cf045)
+
+running 9 tests
+test contained_adapter::tests::containment_failure_never_claims_termination ... ok
+test contained_adapter::tests::parses_one_json_rpc_result_line ... ok
+test tests::explicit_data_directory_wins ... ok
+test tests::capabilities_include_installed_state_query ... ok
+test tests::capabilities_include_governed_install_plan_and_pinned_user_execution ... ok
+test recovery::tests::prepared_is_the_only_auto_release_without_provider_result ... ok
+test tests::limit_is_bounded ... ok
+test tests::path_parameter_must_be_non_empty ... ok
+test tests::required_uuid_rejects_invalid_values ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[92m     Running[0m unittests src/lib.rs (target/debug/deps/toolos_storage-b3c90096e923fd8f)
+
+running 8 tests
+test recovery::tests::transition_validation_rejects_skipped_phases ... ok
+test tests::migrations_are_valid ... ok
+test recovery::tests::migration_creates_execution_journal_for_existing_databases ... ok
+test cleanup::tests::cleanup_approval_is_durable_and_never_enables_execution ... FAILED
+test tests::evidence_and_events_round_trip ... ok
+test tests::plan_approval_is_atomic_and_locks_resource ... ok
+test tests::plan_approval_rejects_wrong_phrase ... ok
+test tests::unknown_execution_retains_resource_lock ... ok
+
+failures:
+
+---- cleanup::tests::cleanup_approval_is_durable_and_never_enables_execution stdout ----
+
+thread 'cleanup::tests::cleanup_approval_is_durable_and_never_enables_execution' (4292) panicked at crates/toolos-storage/src/cleanup.rs:214:14:
+store cleanup plan: Database(SqliteFailure(Error { code: ConstraintViolation, extended_code: 787 }, Some("FOREIGN KEY constraint failed")))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    cleanup::tests::cleanup_approval_is_durable_and_never_enables_execution
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+[1m[91merror[0m: test failed, to rerun pass `-p toolos-storage --lib`
