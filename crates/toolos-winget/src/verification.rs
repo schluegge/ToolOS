@@ -153,7 +153,9 @@ pub fn parse_official_provider_json(json: &str) -> Result<OfficialProviderSnapsh
     if snapshot.status == OfficialProviderStatus::Available {
         for package in &snapshot.packages {
             if package.id.trim().is_empty() || package.installed_version.trim().is_empty() {
-                return Err("available provider package omitted required typed properties".to_owned());
+                return Err(
+                    "available provider package omitted required typed properties".to_owned(),
+                );
             }
         }
     }
@@ -219,9 +221,14 @@ pub fn build_verification_report(
 
 #[must_use]
 pub fn parse_git_version_output(output: &str) -> Option<String> {
-    let line = output.lines().map(str::trim).find(|line| !line.is_empty())?;
+    let line = output
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())?;
     let version = line.strip_prefix("git version ")?;
-    let core = version.split_once(".windows.").map_or(version, |(core, _)| core);
+    let core = version
+        .split_once(".windows.")
+        .map_or(version, |(core, _)| core);
     let parts: Vec<_> = core.split('.').collect();
     if !(2..=4).contains(&parts.len())
         || parts
@@ -294,7 +301,8 @@ pub fn git_recipe_evidence(
     let parsed_version = raw_version_output
         .as_deref()
         .and_then(parse_git_version_output);
-    let architecture = executable_path.and_then(|path| inspect_pe_architecture(path).ok().flatten());
+    let architecture =
+        executable_path.and_then(|path| inspect_pe_architecture(path).ok().flatten());
     let scope = executable_path.and_then(|path| classify_scope_path(path, roots));
     PackageRecipeEvidence {
         recipe_id: GIT_RECIPE_ID.to_owned(),
@@ -318,7 +326,11 @@ pub fn git_recipe_evidence(
 fn provider_dimensions(
     selector: &PackageSelector,
     provider: &OfficialProviderSnapshot,
-) -> (VerificationDimension, VerificationDimension, VerificationDimension) {
+) -> (
+    VerificationDimension,
+    VerificationDimension,
+    VerificationDimension,
+) {
     let expected_version = selector.version.clone();
     if provider.status != OfficialProviderStatus::Available {
         let limitation = provider
@@ -384,16 +396,17 @@ fn provider_dimensions(
             Some(package.installed_version.clone()),
             "PSInstalledCatalogPackage.CompareToVersion returned Equal.".to_owned(),
         ),
-        (Some(expected), OfficialVersionComparison::Lesser | OfficialVersionComparison::Greater) => {
-            not_verified(
-                Some(expected.clone()),
-                Some(package.installed_version.clone()),
-                format!(
-                    "PSInstalledCatalogPackage.CompareToVersion returned {:?}.",
-                    package.version_comparison
-                ),
-            )
-        }
+        (
+            Some(expected),
+            OfficialVersionComparison::Lesser | OfficialVersionComparison::Greater,
+        ) => not_verified(
+            Some(expected.clone()),
+            Some(package.installed_version.clone()),
+            format!(
+                "PSInstalledCatalogPackage.CompareToVersion returned {:?}.",
+                package.version_comparison
+            ),
+        ),
         (Some(expected), OfficialVersionComparison::Unknown) => indeterminate_observed(
             Some(expected.clone()),
             Some(package.installed_version.clone()),
@@ -473,7 +486,10 @@ fn recipe_dimensions(
             Some(scope_name(expected)),
             "The executable path is not below one unambiguous configured scope root.".to_owned(),
         ),
-        (None, _) => indeterminate(None, "The immutable selector did not require a scope.".to_owned()),
+        (None, _) => indeterminate(
+            None,
+            "The immutable selector did not require a scope.".to_owned(),
+        ),
     };
     let architecture = match (&selector.architecture, &recipe.architecture) {
         (_, _) if executable_missing => not_verified(
@@ -806,7 +822,11 @@ mod tests {
         );
 
         let mut failing = healthy_recipe(PackageScope::User, "x64");
-        failing.process_evidence.as_mut().expect("process").exit_code = Some(1);
+        failing
+            .process_evidence
+            .as_mut()
+            .expect("process")
+            .exit_code = Some(1);
         let report = build_verification_report(
             selector(),
             provider(OfficialVersionComparison::Equal),
@@ -871,7 +891,10 @@ mod tests {
             system_roots: vec![PathBuf::from(r"C:\Program Files")],
         };
         assert_eq!(
-            classify_scope_path(Path::new(r"C:\Users\test\AppData\Local\Git\git.exe"), &roots),
+            classify_scope_path(
+                Path::new(r"C:\Users\test\AppData\Local\Git\git.exe"),
+                &roots
+            ),
             Some(PackageScope::User)
         );
         assert_eq!(
