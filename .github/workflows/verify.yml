@@ -45,3 +45,16 @@ jobs:
         with:
           workspaces: apps/toolos-ui/src-tauri
       - run: cargo check --manifest-path apps/toolos-ui/src-tauri/Cargo.toml
+
+  windows-process-containment:
+    name: Windows process containment
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all
+      - run: cargo clippy -p toolos-process --all-targets -- -D warnings
+      - run: cargo test -p toolos-process --all-targets -- --nocapture
