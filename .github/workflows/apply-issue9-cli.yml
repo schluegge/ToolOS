@@ -1,0 +1,45 @@
+name: apply-issue9-cli
+
+on:
+  pull_request:
+    branches: [build/winget-user-execution]
+    paths:
+      - tools/apply-issue9-cli.py
+      - .github/workflows/apply-issue9-cli.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-verify-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: build/winget-user-execution-issue9
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Apply and verify recovery CLI
+        run: |
+          python tools/apply-issue9-cli.py
+          cargo fmt --all
+          cargo clippy -p toolos-cli --all-targets -- -D warnings
+          cargo test -p toolos-cli
+      - name: Publish verified CLI source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: build/winget-user-execution-issue9
+        shell: bash
+        run: |
+          set -euo pipefail
+          path=apps/toolos-cli/src/main.rs
+          sha=$(git rev-parse "HEAD:${path}")
+          content=$(base64 -w0 "${path}")
+          gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${path}" \
+            -f message="Expose WinGet recovery commands in the CLI" \
+            -f content="${content}" \
+            -f branch="${TARGET_BRANCH}" \
+            -f sha="${sha}"
