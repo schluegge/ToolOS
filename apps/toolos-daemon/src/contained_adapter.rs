@@ -102,7 +102,9 @@ pub fn spawn_mutating_adapter(
     let process = spawn_contained(spec)
         .with_context(|| format!("start contained adapter at {}", path.display()))?;
     if process.execution_id() == Uuid::nil() {
-        return Err(anyhow!("contained adapter returned an invalid execution ID"));
+        return Err(anyhow!(
+            "contained adapter returned an invalid execution ID"
+        ));
     }
     Ok(ContainedAdapter { process })
 }

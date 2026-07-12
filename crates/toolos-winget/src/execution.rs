@@ -156,9 +156,7 @@ pub fn classify_execution_status(
     process_evidence: &ProcessEvidence,
     containment: &ProcessContainmentEvidence,
 ) -> WingetExecutionStatus {
-    if !containment.containment_confirmed
-        || containment.active_processes_after_cleanup != Some(0)
-    {
+    if !containment.containment_confirmed || containment.active_processes_after_cleanup != Some(0) {
         return WingetExecutionStatus::UnknownRequiresRecovery;
     }
 
