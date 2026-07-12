@@ -1,0 +1,37 @@
+name: apply-issue9-missed-fixes
+
+on:
+  pull_request:
+    branches: [build/winget-user-execution]
+    paths:
+      - tools/apply-issue9-missed-fixes.py
+      - .github/workflows/apply-issue9-missed-fixes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-verify-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: build/winget-user-execution-issue9
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Apply and verify missed fixes
+        run: |
+          python tools/apply-issue9-missed-fixes.py
+          cargo fmt --all
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test -p toolos-storage -p toolos-daemon -p toolos-winget
+      - name: Commit verified production fixes
+        run: |
+          git config user.name "ToolOS Build Bot"
+          git config user.email "toolos-build-bot@users.noreply.github.com"
+          git add crates/toolos-storage/src/lib.rs crates/toolos-storage/src/cleanup.rs
+          git commit -m "Fix recovery cleanup storage integration"
+          git push origin HEAD:build/winget-user-execution-issue9
