@@ -1,4 +1,3 @@
-use chrono::{DateTime, Utc};
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use toolos_winget::{
     ExecutionJournalPhase, RecoveryStatus, WingetExecutionJournal, WingetRecoveryReport,
