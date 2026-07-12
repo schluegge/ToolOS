@@ -38,3 +38,15 @@ replace_once(
     "verification capability",
 )
 path.write_text(source, encoding="utf-8", newline="\n")
+
+verification_path = Path("adapters/toolos-winget-adapter/src/verification.rs")
+verification = verification_path.read_text(encoding="utf-8")
+old = "    ProcessEvidence, ScopeRoots, WingetVerificationReport, OFFICIAL_PROVIDER_CONTRACT,\n"
+new = "    ProcessEvidence, ScopeRoots, OFFICIAL_PROVIDER_CONTRACT,\n"
+if verification.count(old) != 1:
+    raise RuntimeError(
+        f"unused verification import: expected one match, found {verification.count(old)}"
+    )
+verification_path.write_text(
+    verification.replace(old, new, 1), encoding="utf-8", newline="\n"
+)
