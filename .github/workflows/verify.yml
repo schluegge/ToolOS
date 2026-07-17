@@ -45,3 +45,32 @@ jobs:
         with:
           workspaces: apps/toolos-ui/src-tauri
       - run: cargo check --manifest-path apps/toolos-ui/src-tauri/Cargo.toml
+
+  spatial-portable-probe:
+    name: Spatial Window portable Linux runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S ci/spatial-window-probe -B build/spatial-linux -G Ninja -DCMAKE_BUILD_TYPE=Debug
+      - name: Build with warnings as errors
+        run: cmake --build build/spatial-linux --parallel 2
+      - name: Execute portable probe
+        run: ctest --test-dir build/spatial-linux --output-on-failure
+
+  spatial-d3d11-probe:
+    name: Spatial Window native D3D11 Windows runtime
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure with Visual Studio 2022
+        shell: pwsh
+        run: cmake -S ci/spatial-window-probe -B build/spatial-windows -G "Visual Studio 17 2022" -A x64
+      - name: Build with warnings as errors
+        shell: pwsh
+        run: cmake --build build/spatial-windows --config Debug --parallel 2
+      - name: Execute portable and D3D11 WARP probes
+        shell: pwsh
+        run: ctest --test-dir build/spatial-windows -C Debug --output-on-failure
