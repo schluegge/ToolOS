@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import shutil
@@ -7,7 +8,6 @@ import tarfile
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parent
-ARCHIVE = ROOT / "source.tar.gz"
 DESTINATION = ROOT / "source"
 MANIFEST = ROOT / "source-manifest.json"
 ARCHIVE_SHA256 = "e7e5d7385f29539943e37cd910114ea5a693621df9cb34eeecfdaad3ddcf03c9"
@@ -20,7 +20,11 @@ def validate_member_name(name: str) -> None:
 
 
 def main() -> int:
-    archive_bytes = ARCHIVE.read_bytes()
+    parts = sorted(ROOT.glob("source.tar.gz.b64.part*"))
+    if not parts:
+        raise SystemExit("source archive parts are missing")
+    encoded = "".join(path.read_text(encoding="ascii").strip() for path in parts)
+    archive_bytes = base64.b64decode(encoded, validate=True)
     actual_archive_sha = hashlib.sha256(archive_bytes).hexdigest()
     if actual_archive_sha != ARCHIVE_SHA256:
         raise SystemExit(
@@ -31,10 +35,15 @@ def main() -> int:
         shutil.rmtree(DESTINATION)
     DESTINATION.mkdir(parents=True)
 
-    with tarfile.open(ARCHIVE, mode="r:gz") as archive:
-        for member in archive.getmembers():
-            validate_member_name(member.name)
-        archive.extractall(DESTINATION, filter="data")
+    archive_path = ROOT / "source.tar.gz"
+    archive_path.write_bytes(archive_bytes)
+    try:
+        with tarfile.open(archive_path, mode="r:gz") as archive:
+            for member in archive.getmembers():
+                validate_member_name(member.name)
+            archive.extractall(DESTINATION, filter="data")
+    finally:
+        archive_path.unlink(missing_ok=True)
 
     data = json.loads(MANIFEST.read_text(encoding="utf-8"))
     expected_paths: set[str] = set()
