@@ -58,7 +58,9 @@ jobs:
       - name: Restore and verify exact source snapshot
         working-directory: ci/spatial-window-protobuf-core-persistence-checkpoint18
         shell: pwsh
-        run: python restore_and_verify.py
+        run: |
+          & python restore_and_verify.py 2>&1 | Tee-Object -FilePath restore.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Configure with Visual Studio 2026 and static vcpkg
         shell: pwsh
         run: |
@@ -89,6 +91,7 @@ jobs:
             ci/spatial-window-protobuf-core-persistence-checkpoint18/source-manifest.json
             ci/spatial-window-protobuf-core-persistence-checkpoint18/source-overlay.json
             ci/spatial-window-protobuf-core-persistence-checkpoint18/source-overrides/vcpkg.json
+            ci/spatial-window-protobuf-core-persistence-checkpoint18/restore.log
             build/spatial-protobuf-core-persistence-checkpoint18/configure.log
             build/spatial-protobuf-core-persistence-checkpoint18/vcpkg-manifest-install.log
             build/spatial-protobuf-core-persistence-checkpoint18/Testing/Temporary/LastTest.log
