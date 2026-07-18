@@ -61,6 +61,19 @@ jobs:
         run: |
           & python restore_and_verify.py 2>&1 | Tee-Object -FilePath restore.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Fetch and verify pinned vcpkg baseline
+        shell: pwsh
+        run: |
+          if (-not $env:VCPKG_INSTALLATION_ROOT) { throw 'VCPKG_INSTALLATION_ROOT is unavailable' }
+          $manifest = Get-Content 'ci/spatial-window-protobuf-core-persistence-checkpoint18/source/vcpkg.json' -Raw | ConvertFrom-Json
+          $baseline = $manifest.'builtin-baseline'
+          $log = Join-Path $env:GITHUB_WORKSPACE 'vcpkg-baseline-fetch.log'
+          & git -C $env:VCPKG_INSTALLATION_ROOT fetch --no-tags --depth=1 origin $baseline 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & git -C $env:VCPKG_INSTALLATION_ROOT cat-file -e "${baseline}^{commit}" 2>&1 | Tee-Object -FilePath $log -Append
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & git -C $env:VCPKG_INSTALLATION_ROOT show "${baseline}:versions/baseline.json" 2>&1 | Select-Object -First 5 | Tee-Object -FilePath $log -Append
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Configure with Visual Studio 2026 and static vcpkg
         shell: pwsh
         run: |
@@ -93,6 +106,7 @@ jobs:
             ci/spatial-window-protobuf-core-persistence-checkpoint18/source-overrides/vcpkg.json.b64
             ci/spatial-window-protobuf-core-persistence-checkpoint18/source/vcpkg.json
             ci/spatial-window-protobuf-core-persistence-checkpoint18/restore.log
+            vcpkg-baseline-fetch.log
             build/spatial-protobuf-core-persistence-checkpoint18/configure.log
             build/spatial-protobuf-core-persistence-checkpoint18/vcpkg-manifest-install.log
             build/spatial-protobuf-core-persistence-checkpoint18/Testing/Temporary/LastTest.log
