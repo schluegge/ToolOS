@@ -72,7 +72,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & git -C $env:VCPKG_INSTALLATION_ROOT cat-file -e "${baseline}^{commit}" 2>&1 | Tee-Object -FilePath $log -Append
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & git -C $env:VCPKG_INSTALLATION_ROOT show "${baseline}:versions/baseline.json" 2>&1 | Select-Object -First 5 | Tee-Object -FilePath $log -Append
+          & git -C $env:VCPKG_INSTALLATION_ROOT checkout --detach --force $baseline 2>&1 | Tee-Object -FilePath $log -Append
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $checkedOut = (& git -C $env:VCPKG_INSTALLATION_ROOT rev-parse HEAD).Trim()
+          if ($checkedOut -ne $baseline) { throw "vcpkg checkout mismatch: expected=$baseline actual=$checkedOut" }
+          & git -C $env:VCPKG_INSTALLATION_ROOT show "HEAD:versions/baseline.json" 2>&1 | Select-Object -First 5 | Tee-Object -FilePath $log -Append
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & (Join-Path $env:VCPKG_INSTALLATION_ROOT 'bootstrap-vcpkg.bat') -disableMetrics 2>&1 | Tee-Object -FilePath $log -Append
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & (Join-Path $env:VCPKG_INSTALLATION_ROOT 'vcpkg.exe') version 2>&1 | Tee-Object -FilePath $log -Append
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Configure with Visual Studio 2026 and static vcpkg
         shell: pwsh
