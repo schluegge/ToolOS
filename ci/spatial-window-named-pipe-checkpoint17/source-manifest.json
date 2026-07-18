@@ -1,0 +1,23 @@
+{
+  "source_artifact": "spatial-window-environment-MVP-checkpoint-17-windows-named-pipe-source-backed.zip",
+  "source_artifact_sha256": "a23276e52db3e9d7c2a49625ab496b8a0509b3202196cb26a8fc882cef489016",
+  "scope": "native Windows named-pipe component and direct dependencies only",
+  "files": [
+    {"path":"source/modules/common/include/spatial/common/result.hpp","size":2166,"sha256":"48109add991a4b1a7c61674eda286fc391f8333b38d657192b35343f6c035118"},
+    {"path":"source/modules/common/include/spatial/common/uuid.hpp","size":955,"sha256":"4f5e54c74cc85854205338dcc5b0c18b65f96607dd59f1094e81f6b21a9b1d35"},
+    {"path":"source/modules/common/src/uuid.cpp","size":2527,"sha256":"5fc27a16f906997a5fc5a74feebec55a3b6c577f46bb90d2a5e87a88d16f0643"},
+    {"path":"source/modules/transport-named-pipe/include/spatial/transport/named_pipe_client.hpp","size":529,"sha256":"0e59f5e7c558f2ce84d8d87cf8e63f5ce2065b1e51810898ec195f8b1b7c664b"},
+    {"path":"source/modules/transport-named-pipe/include/spatial/transport/named_pipe_server.hpp","size":1879,"sha256":"28bfead2228112d2568658393fc1890c79550455268c034b0057b4bd4b0e0347"},
+    {"path":"source/modules/transport-named-pipe/include/spatial/transport/pipe_types.hpp","size":2797,"sha256":"14b1dff57776af0f013aa111ff646639554233bbf4252a0e2813f3b8ec219e2b"},
+    {"path":"source/modules/transport-named-pipe/src/named_pipe_client.cpp","size":3604,"sha256":"91c86bcad58d1dd83517b8c326ea0af70a7b4367aa6d3a2c480ad0aec0b4fd37"},
+    {"path":"source/modules/transport-named-pipe/src/named_pipe_internal.cpp","size":13924,"sha256":"c9e9200636017357f5dbbdb60a660bd9ea28362c61f24c42809eb4729d2a3f08"},
+    {"path":"source/modules/transport-named-pipe/src/named_pipe_internal.hpp","size":3648,"sha256":"db0d2d28bf5b07a184f5087131e713112c3f34e7170379edc5f92c29754f3d58"},
+    {"path":"source/modules/transport-named-pipe/src/named_pipe_server.cpp","size":13325,"sha256":"4d5ace7170029bea0851e67803fd8b6369eb7d04fdd16a0ff740fbbd29b3904c"},
+    {"path":"source/modules/transport-named-pipe/src/pipe_security.cpp","size":4431,"sha256":"32a12ddf595c698b6a35fc2d6a6d4929724e58d59f1c01faee1c33783a4d9f97"},
+    {"path":"source/modules/transport-named-pipe/src/pipe_security.hpp","size":888,"sha256":"0591310c4d71645a85e09b2aa97a7f9f0cdbbfd1432b653acbcf3a730c50463e"},
+    {"path":"source/modules/transport-named-pipe/src/pipe_types.cpp","size":4102,"sha256":"a5552ac1c89397ce09e91f23e22dc0075ff2ad17697f23aad374e785a4ed54fd"},
+    {"path":"source/modules/transport-records/include/spatial/transport/record_codec.hpp","size":1675,"sha256":"f754c2d660c38b8b3cc89caf18ad2d47201d66ab835af3d32bc7d844d923f31b"},
+    {"path":"source/modules/transport-records/src/record_codec.cpp","size":5757,"sha256":"8e0ad62a1c10552d099d4cbec31f8c2e072b212023defde013c8fabf402c62a9"},
+    {"path":"source/tests/transport/named_pipe_windows_roundtrip_tests.cpp","size":6369,"sha256":"b29406d4a8585fa77f05ba32a28b7a8052fbe3c96dbf8bd5aa9281316c58f652"}
+  ]
+}
