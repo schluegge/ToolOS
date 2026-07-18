@@ -64,11 +64,15 @@ jobs:
         run: |
           if (-not $env:VCPKG_INSTALLATION_ROOT) { throw 'VCPKG_INSTALLATION_ROOT is unavailable' }
           $env:VCPKG_ROOT = $env:VCPKG_INSTALLATION_ROOT
-          cmake -S ci/spatial-window-protobuf-core-persistence-checkpoint18/source `
-            -B build/spatial-protobuf-core-persistence-checkpoint18 `
+          $buildDir = Join-Path $env:GITHUB_WORKSPACE 'build/spatial-protobuf-core-persistence-checkpoint18'
+          New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
+          & cmake -S ci/spatial-window-protobuf-core-persistence-checkpoint18/source `
+            -B $buildDir `
             -G "Visual Studio 18 2026" -A x64 `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static `
-            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            2>&1 | Tee-Object -FilePath (Join-Path $buildDir 'configure.log')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build with warnings as errors
         shell: pwsh
         run: cmake --build build/spatial-protobuf-core-persistence-checkpoint18 --config Debug --parallel 2
@@ -83,6 +87,8 @@ jobs:
           if-no-files-found: ignore
           path: |
             ci/spatial-window-protobuf-core-persistence-checkpoint18/source-manifest.json
+            build/spatial-protobuf-core-persistence-checkpoint18/configure.log
+            build/spatial-protobuf-core-persistence-checkpoint18/vcpkg-manifest-install.log
             build/spatial-protobuf-core-persistence-checkpoint18/Testing/Temporary/LastTest.log
             build/spatial-protobuf-core-persistence-checkpoint18/Testing/Temporary/LastTestsFailed.log
             build/spatial-protobuf-core-persistence-checkpoint18/Debug/*.exe
