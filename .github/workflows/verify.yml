@@ -90,7 +90,8 @@ jobs:
           path: |
             ci/spatial-window-protobuf-core-persistence-checkpoint18/source-manifest.json
             ci/spatial-window-protobuf-core-persistence-checkpoint18/source-overlay.json
-            ci/spatial-window-protobuf-core-persistence-checkpoint18/source-overrides/vcpkg.json
+            ci/spatial-window-protobuf-core-persistence-checkpoint18/source-overrides/vcpkg.json.b64
+            ci/spatial-window-protobuf-core-persistence-checkpoint18/source/vcpkg.json
             ci/spatial-window-protobuf-core-persistence-checkpoint18/restore.log
             build/spatial-protobuf-core-persistence-checkpoint18/configure.log
             build/spatial-protobuf-core-persistence-checkpoint18/vcpkg-manifest-install.log

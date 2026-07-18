@@ -6,9 +6,10 @@
   "overrides": [
     {
       "path": "vcpkg.json",
-      "source": "source-overrides/vcpkg.json",
+      "source": "source-overrides/vcpkg.json.b64",
       "size": 311,
-      "sha256": "07b863a5a839b5b839ac7b1b425ba425f7b8246fd1cd50fe26003dd2cb2f8bdb"
+      "sha256": "07b863a5a839b5b839ac7b1b425ba425f7b8246fd1cd50fe26003dd2cb2f8bdb",
+      "encoding": "base64"
     }
   ]
 }

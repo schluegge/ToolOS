@@ -55,7 +55,11 @@ def main() -> int:
         source = ROOT.joinpath(*PurePosixPath(override["source"]).parts)
         destination = DESTINATION.joinpath(*relative.parts)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, destination)
+        if override.get("encoding") == "base64":
+            content = base64.b64decode(source.read_text(encoding="ascii").strip(), validate=True)
+            destination.write_bytes(content)
+        else:
+            shutil.copyfile(source, destination)
         records[relative.as_posix()] = {
             "path": relative.as_posix(),
             "size": override["size"],
