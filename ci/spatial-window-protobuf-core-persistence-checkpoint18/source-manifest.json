@@ -1,0 +1,302 @@
+{
+  "source_commit": "34f8a9240950716580eeb497ea91ef2460eceece",
+  "checkpoint_zip_sha256": "76f9a490f7bec6badc8413a6fc620f126b914ecac6eb9f36ba337627d9ec1664",
+  "scope": "Named Pipe -> generated Protobuf -> CoreService -> SQLite -> canonical response",
+  "files": [
+    {
+      "path": "CMakeLists.txt",
+      "size": 1401,
+      "sha256": "5469cd3c25facfeb694cf636494214925304f711f1ee0f5a7b6a3dd6bcb47bc5"
+    },
+    {
+      "path": "apps/core-service/CMakeLists.txt",
+      "size": 727,
+      "sha256": "cba72cad15263733269d74d74a1b5ad8690adbbe92d3da36ba7d4beb579ccade"
+    },
+    {
+      "path": "apps/core-service/command_dispatcher.cpp",
+      "size": 1814,
+      "sha256": "1a4e4e5366ab4ac7fa45adfd7e30270900ec1a03a531bb73a9b59f7ecd55286a"
+    },
+    {
+      "path": "apps/core-service/command_dispatcher.hpp",
+      "size": 513,
+      "sha256": "4ecf1976ce2429b30f5da89204646a5a288c32e7a807209598a3db67140c272e"
+    },
+    {
+      "path": "apps/core-service/core_service.cpp",
+      "size": 13999,
+      "sha256": "1088e5859082f359319a9bc6bd8fae14c2cc49d4f4d95f9c596d8acc52f79cc0"
+    },
+    {
+      "path": "apps/core-service/include/spatial/core_service/core_service.hpp",
+      "size": 5464,
+      "sha256": "31b11114e53880104c89bf79a590830232519575e599f75d4ebd5492b4bc5d40"
+    },
+    {
+      "path": "apps/core-service/include/spatial/core_service/protobuf_command_processor.hpp",
+      "size": 936,
+      "sha256": "171c84201cdff794826badf08691eb0630acd1d9dc9937821cf6849b66a3091b"
+    },
+    {
+      "path": "apps/core-service/main.cpp",
+      "size": 1049,
+      "sha256": "862766ff14f77ae2de348e1dceb9b1d2a7f620511f711681ccfb6609dfecd744"
+    },
+    {
+      "path": "apps/core-service/protobuf_command_processor.cpp",
+      "size": 7937,
+      "sha256": "ea8a6160e7a71c3403c1e21c03ed3d61064eb377180b274e4856a65acd44840d"
+    },
+    {
+      "path": "cmake/SpatialProtobuf.cmake",
+      "size": 3888,
+      "sha256": "9e391a1b41360ee4cbc35ef8029a9e7a48258d5edc84e384ae7cffd605f5e7f0"
+    },
+    {
+      "path": "contracts/proto/spatial/v1/commands.proto",
+      "size": 2510,
+      "sha256": "7273c9bf2ceb23dc01b4eae19c2afcbcfb6f29c79ca1d8078e967e3b7546bc78"
+    },
+    {
+      "path": "contracts/proto/spatial/v1/common.proto",
+      "size": 664,
+      "sha256": "ab4b2c2c2f388c4e9c542dd70cdd6d299fa05ef089eda3aa4aa0e80289ef2291"
+    },
+    {
+      "path": "contracts/proto/spatial/v1/errors.proto",
+      "size": 922,
+      "sha256": "e76b420235a0dac14115c9de64114213cd05fdb3be2cdf9801a5c827c0885fcf"
+    },
+    {
+      "path": "contracts/proto/spatial/v1/events.proto",
+      "size": 2033,
+      "sha256": "a8700a06760874e0523ff731ab555eb05d2ffa8bb44be997ea1af93b569a996a"
+    },
+    {
+      "path": "contracts/proto/spatial/v1/handshake.proto",
+      "size": 628,
+      "sha256": "c11956301c37e941cd2da8cd0f9c6355dfb3ee151c109b107c3fcd946f07df74"
+    },
+    {
+      "path": "contracts/proto/spatial/v1/plugins.proto",
+      "size": 723,
+      "sha256": "528c94056e606e581ad570b0563b392fec6fcdfc35bca83e894cc5399f9f1a5f"
+    },
+    {
+      "path": "contracts/proto/spatial/v1/state.proto",
+      "size": 5179,
+      "sha256": "54638c23c0b14a474eb9543fb90b3f9144291197d1c09638262d308548fe1a8d"
+    },
+    {
+      "path": "modules/common/CMakeLists.txt",
+      "size": 249,
+      "sha256": "19adfd7986b2d772af2679a4ccc62e0f1cd220d906a4e6e51bceb2b175695be0"
+    },
+    {
+      "path": "modules/common/include/spatial/common/result.hpp",
+      "size": 2166,
+      "sha256": "48109add991a4b1a7c61674eda286fc391f8333b38d657192b35343f6c035118"
+    },
+    {
+      "path": "modules/common/include/spatial/common/sha256.hpp",
+      "size": 380,
+      "sha256": "731b38abcbc42c41463bda357bc5b9dd02b4230bf0feae45044cbe9e31d8481c"
+    },
+    {
+      "path": "modules/common/include/spatial/common/uuid.hpp",
+      "size": 955,
+      "sha256": "4f5e54c74cc85854205338dcc5b0c18b65f96607dd59f1094e81f6b21a9b1d35"
+    },
+    {
+      "path": "modules/common/src/sha256.cpp",
+      "size": 1154,
+      "sha256": "e4ae1704d9d2b430310a664b62db655265cff6d2daa82502680bf85e58422ab7"
+    },
+    {
+      "path": "modules/common/src/uuid.cpp",
+      "size": 2527,
+      "sha256": "5fc27a16f906997a5fc5a74feebec55a3b6c577f46bb90d2a5e87a88d16f0643"
+    },
+    {
+      "path": "modules/core-domain/CMakeLists.txt",
+      "size": 286,
+      "sha256": "d8f4777594e4737b2da993d5897644ccec9a0d013cb2fc237f7547a2b5a0a5dd"
+    },
+    {
+      "path": "modules/core-domain/include/spatial/core/mutation.hpp",
+      "size": 1626,
+      "sha256": "c2cae603932e568820fc1cc6601f331790cf47acdbf8e812647d0f6545e2ed74"
+    },
+    {
+      "path": "modules/core-domain/include/spatial/core/session_state.hpp",
+      "size": 2017,
+      "sha256": "f3dfa1afa1aa6fc46fd8b9ef21f90ee3955b62afabd5a966f82d38ba4e259b37"
+    },
+    {
+      "path": "modules/core-domain/include/spatial/domain/entities.hpp",
+      "size": 5054,
+      "sha256": "b9b8aa41d9394e5266335c6f9bc315019c2ac22818c8e7d2fee7b07cfc84b4c2"
+    },
+    {
+      "path": "modules/core-domain/include/spatial/domain/types.hpp",
+      "size": 778,
+      "sha256": "bdec6b444615fcf09c3cb6af6341420f30961cd0b427358ad2fdca72c496b92f"
+    },
+    {
+      "path": "modules/core-domain/src/mutation.cpp",
+      "size": 6289,
+      "sha256": "c1eba281b0e92bada8d506cb7c6d19557af235bfe248b73d364a2c8b42f5e16a"
+    },
+    {
+      "path": "modules/core-domain/src/session_state.cpp",
+      "size": 4601,
+      "sha256": "acff9381aba56678a6b25ae297a11f285fd610e58e9fccb9f7e98e21e37a67f3"
+    },
+    {
+      "path": "modules/core-persistence/CMakeLists.txt",
+      "size": 479,
+      "sha256": "ae7721b168ea4e9bd268f3a4a4d36e2c306aac47deba9cf6724dcc97541c0952"
+    },
+    {
+      "path": "modules/core-persistence/include/spatial/persistence/database.hpp",
+      "size": 2477,
+      "sha256": "ef7823ca2d7a281c7029d54cc34e0531efeffaee31675cbea2d180b9b996f9dd"
+    },
+    {
+      "path": "modules/core-persistence/include/spatial/persistence/mutation_repository.hpp",
+      "size": 3136,
+      "sha256": "aa89cb791cc99e819da0685eb9746df3ed6c330da66593e05e97d2e3a1bd29db"
+    },
+    {
+      "path": "modules/core-persistence/migrations/0001_initial.sql",
+      "size": 2875,
+      "sha256": "994b2ed4266a8336bd4b4bd77af9fa1ddb1ec86d158c0702fadbf82fbcf079e1"
+    },
+    {
+      "path": "modules/core-persistence/migrations/0002_plugin_state.sql",
+      "size": 293,
+      "sha256": "fe4b0f43740806984639c199b180477f305721628301e10deb15c97747684938"
+    },
+    {
+      "path": "modules/core-persistence/src/database.cpp",
+      "size": 15376,
+      "sha256": "8b536ed04caa7aeda1939b85067010bd7da217dd66fe2e01afb1415ec2954acb"
+    },
+    {
+      "path": "modules/core-persistence/src/mutation_repository.cpp",
+      "size": 30283,
+      "sha256": "b4ff8deb3e05fd5f2b6e76d3ebfbdf3c534da8e7d14d6442f67f65eeab963369"
+    },
+    {
+      "path": "modules/protocol-protobuf/CMakeLists.txt",
+      "size": 341,
+      "sha256": "7ce462eae2ae5e70d5d9ad2a717d68702070f9bb9e8f8b213a02aa6ee76aafc3"
+    },
+    {
+      "path": "modules/protocol-protobuf/include/spatial/protocol/transform_command_codec.hpp",
+      "size": 2882,
+      "sha256": "233e7f705a995f17939f66dc1950f9060e3d47954b9c597493720716d53c7a1e"
+    },
+    {
+      "path": "modules/protocol-protobuf/src/transform_command_codec.cpp",
+      "size": 18204,
+      "sha256": "fbd9059aab695dbe5cd16dbda6cc03a682da538e3f4cb7a4f96db810c8c195fc"
+    },
+    {
+      "path": "modules/transport-named-pipe/CMakeLists.txt",
+      "size": 650,
+      "sha256": "ef5a8a5fa68170794db0a8d2ee383858c258300f559d09e24f4c6b757d2cdfe1"
+    },
+    {
+      "path": "modules/transport-named-pipe/include/spatial/transport/named_pipe_client.hpp",
+      "size": 529,
+      "sha256": "0e59f5e7c558f2ce84d8d87cf8e63f5ce2065b1e51810898ec195f8b1b7c664b"
+    },
+    {
+      "path": "modules/transport-named-pipe/include/spatial/transport/named_pipe_server.hpp",
+      "size": 1879,
+      "sha256": "28bfead2228112d2568658393fc1890c79550455268c034b0057b4bd4b0e0347"
+    },
+    {
+      "path": "modules/transport-named-pipe/include/spatial/transport/pipe_types.hpp",
+      "size": 2797,
+      "sha256": "14b1dff57776af0f013aa111ff646639554233bbf4252a0e2813f3b8ec219e2b"
+    },
+    {
+      "path": "modules/transport-named-pipe/src/named_pipe_client.cpp",
+      "size": 3604,
+      "sha256": "91c86bcad58d1dd83517b8c326ea0af70a7b4367aa6d3a2c480ad0aec0b4fd37"
+    },
+    {
+      "path": "modules/transport-named-pipe/src/named_pipe_internal.cpp",
+      "size": 13924,
+      "sha256": "c9e9200636017357f5dbbdb60a660bd9ea28362c61f24c42809eb4729d2a3f08"
+    },
+    {
+      "path": "modules/transport-named-pipe/src/named_pipe_internal.hpp",
+      "size": 3648,
+      "sha256": "db0d2d28bf5b07a184f5087131e713112c3f34e7170379edc5f92c29754f3d58"
+    },
+    {
+      "path": "modules/transport-named-pipe/src/named_pipe_server.cpp",
+      "size": 13325,
+      "sha256": "4d5ace7170029bea0851e67803fd8b6369eb7d04fdd16a0ff740fbbd29b3904c"
+    },
+    {
+      "path": "modules/transport-named-pipe/src/named_pipe_unavailable.cpp",
+      "size": 2436,
+      "sha256": "8d6368856227fc8a2b6a13b9d67be02a819861b0c2f4b752291baf071b1b3e94"
+    },
+    {
+      "path": "modules/transport-named-pipe/src/pipe_security.cpp",
+      "size": 4431,
+      "sha256": "32a12ddf595c698b6a35fc2d6a6d4929724e58d59f1c01faee1c33783a4d9f97"
+    },
+    {
+      "path": "modules/transport-named-pipe/src/pipe_security.hpp",
+      "size": 888,
+      "sha256": "0591310c4d71645a85e09b2aa97a7f9f0cdbbfd1432b653acbcf3a730c50463e"
+    },
+    {
+      "path": "modules/transport-named-pipe/src/pipe_types.cpp",
+      "size": 4102,
+      "sha256": "a5552ac1c89397ce09e91f23e22dc0075ff2ad17697f23aad374e785a4ed54fd"
+    },
+    {
+      "path": "modules/transport-records/CMakeLists.txt",
+      "size": 337,
+      "sha256": "24a5df9db909c5d71fa0a392addb97eaf7258123fa21188e176fcecc0dae3a1f"
+    },
+    {
+      "path": "modules/transport-records/include/spatial/transport/record_codec.hpp",
+      "size": 1675,
+      "sha256": "f754c2d660c38b8b3cc89caf18ad2d47201d66ab835af3d32bc7d844d923f31b"
+    },
+    {
+      "path": "modules/transport-records/include/spatial/transport/snapshot_assembler.hpp",
+      "size": 2826,
+      "sha256": "9272024cc994ea7221700d89c45888b6794a2fdd7370d4e545cee0f229483fdd"
+    },
+    {
+      "path": "modules/transport-records/src/record_codec.cpp",
+      "size": 5757,
+      "sha256": "8e0ad62a1c10552d099d4cbec31f8c2e072b212023defde013c8fabf402c62a9"
+    },
+    {
+      "path": "modules/transport-records/src/snapshot_assembler.cpp",
+      "size": 6698,
+      "sha256": "550213ef73fc468ef9876314f7e140a4523d6155e2b9f0b7b77415e9990038ef"
+    },
+    {
+      "path": "tests/core-service/named_pipe_protobuf_persistence_windows_tests.cpp",
+      "size": 10835,
+      "sha256": "e35881f53edc59c2c7fcec3fe66208b9ae41b3efc65de8d74e8a06520a7bcd91"
+    },
+    {
+      "path": "vcpkg.json",
+      "size": 199,
+      "sha256": "017c8985c7f41d6dea30ed48520f454fb117635b89ac8a28d061f5184886f782"
+    }
+  ]
+}
