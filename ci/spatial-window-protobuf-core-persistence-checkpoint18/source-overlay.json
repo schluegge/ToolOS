@@ -1,0 +1,14 @@
+{
+  "base_source_commit": "34f8a9240950716580eeb497ea91ef2460eceece",
+  "source_commit": "d83879b30136616fc80f2033adaaf6757711770c",
+  "base_checkpoint_zip_sha256": "76f9a490f7bec6badc8413a6fc620f126b914ecac6eb9f36ba337627d9ec1664",
+  "checkpoint_zip_sha256": "bf286533a5d3316c8447a20ae64bc1f5a1e153a15ae772a6feffa46101977cb6",
+  "overrides": [
+    {
+      "path": "vcpkg.json",
+      "source": "source-overrides/vcpkg.json",
+      "size": 311,
+      "sha256": "07b863a5a839b5b839ac7b1b425ba425f7b8246fd1cd50fe26003dd2cb2f8bdb"
+    }
+  ]
+}

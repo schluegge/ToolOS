@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parent
 DESTINATION = ROOT / "source"
 MANIFEST = ROOT / "source-manifest.json"
+OVERLAY = ROOT / "source-overlay.json"
 ARCHIVE_SHA256 = "e7e5d7385f29539943e37cd910114ea5a693621df9cb34eeecfdaad3ddcf03c9"
 
 
@@ -46,6 +47,23 @@ def main() -> int:
         archive_path.unlink(missing_ok=True)
 
     data = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    overlay = json.loads(OVERLAY.read_text(encoding="utf-8"))
+    records = {record["path"]: record for record in data["files"]}
+    for override in overlay["overrides"]:
+        relative = PurePosixPath(override["path"])
+        validate_member_name(relative.as_posix())
+        source = ROOT.joinpath(*PurePosixPath(override["source"]).parts)
+        destination = DESTINATION.joinpath(*relative.parts)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+        records[relative.as_posix()] = {
+            "path": relative.as_posix(),
+            "size": override["size"],
+            "sha256": override["sha256"],
+        }
+    data["files"] = list(records.values())
+    data["source_commit"] = overlay["source_commit"]
+    data["checkpoint_zip_sha256"] = overlay["checkpoint_zip_sha256"]
     expected_paths: set[str] = set()
     for record in data["files"]:
         relative = PurePosixPath(record["path"])

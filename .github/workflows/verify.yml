@@ -87,6 +87,8 @@ jobs:
           if-no-files-found: ignore
           path: |
             ci/spatial-window-protobuf-core-persistence-checkpoint18/source-manifest.json
+            ci/spatial-window-protobuf-core-persistence-checkpoint18/source-overlay.json
+            ci/spatial-window-protobuf-core-persistence-checkpoint18/source-overrides/vcpkg.json
             build/spatial-protobuf-core-persistence-checkpoint18/configure.log
             build/spatial-protobuf-core-persistence-checkpoint18/vcpkg-manifest-install.log
             build/spatial-protobuf-core-persistence-checkpoint18/Testing/Temporary/LastTest.log
